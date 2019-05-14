@@ -3,7 +3,8 @@ import numpy as np
 from itertools import product
 try:
     from sklearn.ensemble import IsolationForest
-    possible_detect_outliers = True
+    #possible_detect_outliers = True
+    possible_detect_outliers = False
 except ImportError as e:
     possible_detect_outliers = False
 import CONFIG
@@ -171,7 +172,10 @@ def creating_sample(settle_date, data, time_window, min_n_deal, number_cuts=3,
     #throwing out outliers
     if detect_outlier:
         if possible_detect_outliers:
+            print('Start detecting outliers')
             data = outlier_detection(data)
         else:
             print('For detecting outliers sklearn package should be installed')
+    else:        
+        print('For detecting outliers you need to change settings')
     return data

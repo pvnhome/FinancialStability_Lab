@@ -46,6 +46,12 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+NelsonSiegel/run_test.sh
+NelsonSiegel/extracted_data/*.png
+NelsonSiegel/extracted_data/*.xlsx
+NelsonSiegel/datasets/*.hdf
+NelsonSiegel/datasets/*.xls
+NelsonSiegel/datasets/*.xlsx
 
 # Translations
 *.mo
