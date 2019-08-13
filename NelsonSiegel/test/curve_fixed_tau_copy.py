@@ -30,10 +30,11 @@ calendar_data_path = os.path.join(datasets_path, 'coupons_data.hdf')
 save_data = True
 warnings.simplefilter('ignore')
 
-step = 8
+step = 9
 
 ### Initialization
-path = os.path.join(datasets_path, 'bonds_for_Viktor.xlsx')
+path = os.path.join(datasets_path, '20160101_20190531_deals_gov.xlsx')
+#path = os.path.join(datasets_path, 'bonds_for_Viktor.xlsx')
 #path = os.path.join(datasets_path, 'gzb_one_year.xlsx')
 print(f'XLSX-file with deals: {path}\n')
 df = pd.read_excel(path, skiprows=2).rename(columns=CONFIG.NAME_MASK)
