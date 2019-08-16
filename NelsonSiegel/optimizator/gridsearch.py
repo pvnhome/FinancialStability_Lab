@@ -53,7 +53,7 @@ class grid_search():
         self.tonia_df = toniaDF
         self.inertia = inertia
         self.dropped_deals = {}
-        if self.several_dates:
+        if self.several_dates or self.inertia:
             self.settle_dates = pd.date_range(start=self.start_date, end=self.end_date, 
                                               normalize=True, freq=self.freq, closed='right')
         self.previous_curve = []
@@ -63,7 +63,7 @@ class grid_search():
         self.beta_best = None
         self.update_date = None
         self.iter_dates = None
-	self.best_betas
+        self.best_betas = None
         
     #actual minimizaiton
     def minimization_del(self, tau, Loss, loss_args, beta_init, **kwargs):
@@ -467,7 +467,7 @@ class grid_search():
                   'Install dask to enbale multiprocessing')
             self.num_workers = 1
         else:
-            self.num_workers = num_workers
+            self.num_workers = self.num_workers
         self.loss_frame = self.loss_grid(**kwargs)
         #loss_frame = self.filter_frame(loss_frame)
         self.beta_best = self.loss_frame.loc[self.loss_frame['loss'].argmin(), :].values[:-1]
