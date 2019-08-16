@@ -35,7 +35,7 @@ PATH = os.path.join('.', 'extracted_data')
 datasets_path = os.path.join('.', 'datasets')
 clean_data_path = os.path.join(datasets_path, 'clean_data.hdf')
 calendar_data_path = os.path.join(datasets_path, 'coupons_data.hdf')
-save_data = False
+save_data = True
 
 MIN_N_DEAL = CONFIG.main_configs.get('MIN_N_DEAL')
 SETTLE_DATE = CONFIG.main_configs.get('SETTLE_DATE')
@@ -43,7 +43,8 @@ WEIGHT_SCHEME = CONFIG.main_configs.get('WEIGHT_SCHEME')
 
 ### Initialization
 #read initial raw data
-path = os.path.join(datasets_path, 'bonds.xls')
+path = os.path.join(datasets_path, 'deals_gov.xlsx')
+#path = os.path.join(datasets_path, 'bonds.xlsx')
 df = pd.read_excel(path, skiprows=2).rename(columns=CONFIG.NAME_MASK)
 
 #read TONIA data from kase.kz
@@ -133,7 +134,7 @@ loss_args = (filtered_data,
 #defining loss -- Crucial --
 loss = yield_Loss
 
-START_DATE = '2018-01-01'
+START_DATE = '2019-06-25'
 END_DATE = '2019-07-15'
 FREQ = 'W-MON'#change for 'B' for business days
 
@@ -152,7 +153,7 @@ grid = grid_search(tau_grid=tau_grid,
                    several_dates = False,
                    clean_data = clean_data,
                    inertia = True,
-                   num_workers=16)
+                   num_workers=4)
 
 beta_best, loss_frame = grid.fit(options=options, 
                                  return_frame=True, 
