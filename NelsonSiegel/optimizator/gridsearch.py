@@ -7,7 +7,7 @@ from scipy.optimize import minimize
 
 from datapreparation.adaptive_sampling import creating_sample
 import CONFIG
-from ns_func import Z
+from ns_func import Z, par_yield
 
 #checking if dask is installed
 try:
@@ -53,7 +53,7 @@ class grid_search():
         self.tonia_df = toniaDF
         self.inertia = inertia
         self.dropped_deals = {}
-        if self.several_dates:
+        if self.several_dates or self.inertia:
             self.settle_dates = pd.date_range(start=self.start_date, end=self.end_date, 
                                               normalize=True, freq=self.freq, closed='right')
         self.previous_curve = []
@@ -63,7 +63,7 @@ class grid_search():
         self.beta_best = None
         self.update_date = None
         self.iter_dates = None
-	self.best_betas
+        self.best_betas = None
         
     #actual minimizaiton
     def minimization_del(self, tau, Loss, loss_args, beta_init, **kwargs):
@@ -147,7 +147,7 @@ class grid_search():
             
             if (self.inertia) & (len(self.previous_curve)!=0):
                 print(f'diff to previous curve, modified Z-score threshold: {thresh}')
-                diff = np.abs(points.loc[:,'ytm']- (np.exp(Z(points.loc[:,'span']/365, self.previous_curve))-1))*100
+                diff = np.abs(points.loc[:,'ytm']- (np.exp(par_yield(points.loc[:,'span'].values/365, self.previous_curve))-1))*100
             else:
                 print('first filtering')
                 median = np.median(points.loc[:,'ytm'])
@@ -467,16 +467,16 @@ class grid_search():
                   'Install dask to enbale multiprocessing')
             self.num_workers = 1
         else:
-            self.num_workers = num_workers
+            self.num_workers = self.num_workers
         self.loss_frame = self.loss_grid(**kwargs)
         #loss_frame = self.filter_frame(loss_frame)
         self.beta_best = self.loss_frame.loc[self.loss_frame['loss'].argmin(), :].values[:-1]
-	best_betas = {}
+        best_betas = {}
         for date in self.settle_dates:
             idx = self.loss_res[date].loc[:, 'loss'].idxmin()
             best_betas[date] = self.loss_res[pd.to_datetime(date)].loc[idx, ['b0','b1','b2','teta']].values
-	self.best_betas = best_betas
-		  
+        self.best_betas = best_betas
+
         if return_frame:
             return self.beta_best, self.loss_frame
         else:
