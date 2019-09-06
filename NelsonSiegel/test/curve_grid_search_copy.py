@@ -59,7 +59,7 @@ tonia_df.set_index('Date', inplace = True)
 tonia_df = tonia_df.join(tonia)
 tonia_df.fillna(method ='ffill', inplace = True)
 
-tonia_df.to_excel(os.path.join(PATH, 'tonia.xlsx'), sheet_name='tonia')
+# tonia_df.to_excel(os.path.join(PATH, 'tonia.xlsx'), sheet_name='tonia')
 
 ### data mungling
 if save_data:
