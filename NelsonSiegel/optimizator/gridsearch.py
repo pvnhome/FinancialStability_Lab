@@ -1,3 +1,4 @@
+import os
 import logging
 import pandas as pd
 import numpy as np
@@ -54,9 +55,11 @@ class grid_search():
         self.tonia_df = toniaDF
         self.inertia = inertia
         self.dropped_deals = {}
-        if self.several_dates or self.inertia:
-            self.settle_dates = pd.date_range(start=self.start_date, end=self.end_date, 
-                                              normalize=True, freq=self.freq, closed='right')
+        #if self.several_dates or self.inertia:
+        #    self.settle_dates = pd.date_range(start=self.start_date, end=self.end_date, 
+        #                                      normalize=True, freq=self.freq, closed='right')
+        self.settle_dates = pd.to_datetime([end_date])
+            
         self.previous_curve = []
         self.tasks = []
         self.data_different_dates = {}
@@ -252,6 +255,8 @@ class grid_search():
                                                                  time_window=CONFIG.TIME_WINDOW, 
                                                                  thresholds = self.thresholds)
         
+        # dataPath = '/home/victor/python/extracted_data'
+        # self.data_different_dates[settle_date].to_excel(os.path.join(dataPath, f'settle_date_data_{settle_date:%Y%m%d}_450_before.xlsx'), sheet_name='settle_date_before', engine='xlsxwriter')
 
         ind_out=[]
         for b in self.data_different_dates[settle_date].bond_maturity_type.unique().sort_values():
@@ -270,6 +275,8 @@ class grid_search():
         self.dropped_deals[settle_date] = self.data_different_dates[settle_date].loc[ind_out,:]
         self.data_different_dates[settle_date].drop(ind_out, inplace = True)
         self.logger.debug(f'DF shape: {self.data_different_dates[settle_date].shape} - adjusted')
+
+        # self.data_different_dates[settle_date].to_excel(os.path.join(dataPath, f'settle_date_data_{settle_date:%Y%m%d}_450_after.xlsx'), sheet_name='settle_date_after', engine='xlsxwriter')
         
         self.logger.debug(f'Generating sample for {settle_date:%d.%m.%Y} - Done!')
     
