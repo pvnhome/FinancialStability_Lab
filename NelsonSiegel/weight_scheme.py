@@ -1,5 +1,7 @@
+import os
 import pandas as pd
 import numpy as np
+# from random import randint
 import CONFIG
 
 #function of getting adaptive rho
@@ -38,6 +40,7 @@ class WeightScheme():
         self.time_window = time_window
         self.n_cuts = n_cuts
         self.rho = rho
+        # self.calcno = (1000000+randint(0,999999))*10000 + 1
         
     rho_func = lambda self, wl ,max_days: np.log(wl) / max_days
     
@@ -78,6 +81,10 @@ class WeightScheme():
             else:
                 W = 1
             self.df.loc[self.df['bond_maturity_type'] == mat_type, 'weight'] =  W * W_gr
+
+        # dataPath = '/home/victor/python/extracted_data'
+        # self.df.to_excel(os.path.join(dataPath, f'weight_{self.calcno}.xlsx'), sheet_name='weight', engine='xlsxwriter')
+        # self.calcno = self.calcno + 1
 
         return self.df['weight'].values
     #even weights between slices but uneven in the slice itself

@@ -72,6 +72,7 @@ def choosing_time_frame(settle_date, clean_data, number_cuts=3, lookback=180,
         
         if baskets == False:
             treshold = [0, 190, 370, 5 * 365, np.inf]
+            # treshold = [0, 370, 5 * 365, np.inf]
         else:
             treshold = baskets
     else:

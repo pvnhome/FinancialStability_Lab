@@ -19,6 +19,9 @@ try:
 except ImportError as e:
     use_one_worker = True
 
+dataPath = '/home/victor/python/extracted_data'
+dataVariant = '2day'
+
 ##grid search over values of tau
 class grid_search():
     def __init__(self, tau_grid, 
@@ -55,10 +58,10 @@ class grid_search():
         self.tonia_df = toniaDF
         self.inertia = inertia
         self.dropped_deals = {}
-        #if self.several_dates or self.inertia:
-        #    self.settle_dates = pd.date_range(start=self.start_date, end=self.end_date, 
-        #                                      normalize=True, freq=self.freq, closed='right')
-        self.settle_dates = pd.to_datetime([end_date])
+        if self.several_dates or self.inertia:
+            self.settle_dates = pd.date_range(start=self.start_date, end=self.end_date, 
+                                              normalize=True, freq=self.freq, closed='right')
+        #self.settle_dates = pd.to_datetime([end_date])
             
         self.previous_curve = []
         self.tasks = []
@@ -95,7 +98,14 @@ class grid_search():
         l_args = [arg for arg in loss_args]
         l_args.append(tau)
         l_args = tuple(l_args)
-        res_ = minimize(Loss, beta_init, args=l_args, **kwargs, callback=lambda xk: logger.debug(f'{xk}, {Loss(beta=xk, df=l_args[0], coupons_cf=l_args[1], streak_data=l_args[2], rho=l_args[3], weight_scheme=l_args[4], tau=tau)}')) 
+
+        # res_ = minimize(Loss, beta_init, args=l_args, **kwargs, callback=lambda xk: logger.debug(f'{xk}, {Loss(beta=xk, df=l_args[0], coupons_cf=l_args[1], streak_data=l_args[2], rho=l_args[3], weight_scheme=l_args[4], tau=tau)}'))
+         
+        res_ = minimize(Loss, beta_init, args=l_args, **kwargs, callback=lambda xk: logger.debug(f'{xk}'))
+        
+        if not res_.success:
+            raise Exception(res_.message)
+         
         return res_
     
     def is_outlier(self, points, thresh=3.5, score_type ='mzscore'):
@@ -255,9 +265,6 @@ class grid_search():
                                                                  time_window=CONFIG.TIME_WINDOW, 
                                                                  thresholds = self.thresholds)
         
-        # dataPath = '/home/victor/python/extracted_data'
-        # self.data_different_dates[settle_date].to_excel(os.path.join(dataPath, f'settle_date_data_{settle_date:%Y%m%d}_450_before.xlsx'), sheet_name='settle_date_before', engine='xlsxwriter')
-
         ind_out=[]
         for b in self.data_different_dates[settle_date].bond_maturity_type.unique().sort_values():
             bsample = self.data_different_dates[settle_date].loc[self.data_different_dates[settle_date].loc[:,'bond_maturity_type']==b]
@@ -432,7 +439,12 @@ class grid_search():
                 
                 constr = ({'type':'eq',
                            'fun': lambda x: np.array(x[0] + x[1]- np.log(1 + self.tonia_df.loc[settle_date][0]))},)
-                
+
+                binit = pd.DataFrame(self.beta_init)
+                binit.to_excel(os.path.join(dataPath, f'beta_init_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
+                self.data_different_dates[settle_date].to_excel(os.path.join(dataPath, f'settle_date_data_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
+                self.raw_data.to_excel(os.path.join(dataPath, f'raw_data_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
+
                 self.logger.debug('populating distributed tasks')
                 #parallelization of loop via dask multiprocessing
                 values = [delayed(self.minimization_del)(tau, self.Loss, 
@@ -457,6 +469,8 @@ class grid_search():
                 self.logger.info(f'Optimization for {settle_date:%d.%m.%Y} - Done!')
                 self.logger.info(f'Beta best: {self.beta_best}')
                 self.logger.info(f'Previous beta set to {self.previous_curve}')
+                
+                loss_frame.to_excel(os.path.join(dataPath, f'loss_frame_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
                 
             self.update_date = None          
         return loss_frame
