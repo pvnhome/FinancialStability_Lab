@@ -20,7 +20,7 @@ except ImportError as e:
     use_one_worker = True
 
 dataPath = '/home/victor/python/extracted_data'
-dataVariant = '2day'
+dataVariant = '2day_v2'
 
 ##grid search over values of tau
 class grid_search():
@@ -34,7 +34,9 @@ class grid_search():
                  thresholds = [0,180,365,5*365,np.inf],
                  several_dates = False,
                  inertia = False,
-                 num_workers = 16,):
+                 num_workers = 16,
+                 jobid = 0,
+                 calendar = None):
         
         self.Loss = Loss
         self.beta_init = beta_init
@@ -58,9 +60,21 @@ class grid_search():
         self.tonia_df = toniaDF
         self.inertia = inertia
         self.dropped_deals = {}
+        self.logger = logging.getLogger(__name__)
+        
         if self.several_dates or self.inertia:
-            self.settle_dates = pd.date_range(start=self.start_date, end=self.end_date, 
-                                              normalize=True, freq=self.freq, closed='right')
+            full_range = pd.date_range(start=start_date, end=end_date, normalize=True, freq='D', closed='right')
+            self.logger.debug(f'full: {full_range}')
+            filterd_range = pd.DatetimeIndex(list(filter(lambda d: (calendar.index.contains(d) and calendar.loc[d].daytype=='Y') or (not calendar.index.contains(d) and d.dayofweek!=5 and d.dayofweek!=6), full_range)))
+            self.logger.debug(f'filterd: {filterd_range}')
+            self.settle_dates = filterd_range[-14:]
+            self.start_date = filterd_range.min()
+            self.logger.debug(f'filterd14: {self.settle_dates}, min={self.start_date}')
+            
+            # OLD
+            #    self.settle_dates = pd.date_range(start=self.start_date, end=self.end_date, 
+            #                                      normalize=True, freq=self.freq, closed='right')
+        
         #self.settle_dates = pd.to_datetime([end_date])
             
         self.previous_curve = []
@@ -71,7 +85,7 @@ class grid_search():
         self.update_date = None
         self.iter_dates = None
         self.best_betas = None
-        self.logger = logging.getLogger(__name__)
+        self.jobid = jobid
         
     #actual minimizaiton
     def minimization_del(self, tau, Loss, loss_args, beta_init, **kwargs):
@@ -283,7 +297,7 @@ class grid_search():
         self.data_different_dates[settle_date].drop(ind_out, inplace = True)
         self.logger.debug(f'DF shape: {self.data_different_dates[settle_date].shape} - adjusted')
 
-        # self.data_different_dates[settle_date].to_excel(os.path.join(dataPath, f'settle_date_data_{settle_date:%Y%m%d}_450_after.xlsx'), sheet_name='settle_date_after', engine='xlsxwriter')
+        # self.data_different_dates[settle_date].to_excel(os.path.join(dataPath, f'{self.jobid}_settle_date_data_{settle_date:%Y%m%d}_450_after.xlsx'), sheet_name='settle_date_after', engine='xlsxwriter')
         
         self.logger.debug(f'Generating sample for {settle_date:%d.%m.%Y} - Done!')
     
@@ -441,9 +455,9 @@ class grid_search():
                            'fun': lambda x: np.array(x[0] + x[1]- np.log(1 + self.tonia_df.loc[settle_date][0]))},)
 
                 binit = pd.DataFrame(self.beta_init)
-                binit.to_excel(os.path.join(dataPath, f'beta_init_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
-                self.data_different_dates[settle_date].to_excel(os.path.join(dataPath, f'settle_date_data_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
-                self.raw_data.to_excel(os.path.join(dataPath, f'raw_data_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
+                binit.to_excel(os.path.join(dataPath, f'{self.jobid}_beta_init_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
+                self.data_different_dates[settle_date].to_excel(os.path.join(dataPath, f'{self.jobid}_settle_date_data_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
+                self.raw_data.to_excel(os.path.join(dataPath, f'{self.jobid}_raw_data_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
 
                 self.logger.debug('populating distributed tasks')
                 #parallelization of loop via dask multiprocessing
@@ -470,7 +484,7 @@ class grid_search():
                 self.logger.info(f'Beta best: {self.beta_best}')
                 self.logger.info(f'Previous beta set to {self.previous_curve}')
                 
-                loss_frame.to_excel(os.path.join(dataPath, f'loss_frame_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
+                loss_frame.to_excel(os.path.join(dataPath, f'{self.jobid}_loss_frame_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
                 
             self.update_date = None          
         return loss_frame
