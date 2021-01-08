@@ -20,7 +20,7 @@ except ImportError as e:
     use_one_worker = True
 
 dataPath = '/home/victor/python/extracted_data'
-dataVariant = '2day_v2'
+dataVariant = '2day_0_076'
 
 ##grid search over values of tau
 class grid_search():
@@ -67,8 +67,8 @@ class grid_search():
             self.logger.debug(f'full: {full_range}')
             filterd_range = pd.DatetimeIndex(list(filter(lambda d: (calendar.index.contains(d) and calendar.loc[d].daytype=='Y') or (not calendar.index.contains(d) and d.dayofweek!=5 and d.dayofweek!=6), full_range)))
             self.logger.debug(f'filterd: {filterd_range}')
-            self.settle_dates = filterd_range[-14:]
-            self.start_date = filterd_range.min()
+            self.settle_dates = filterd_range[-2:]
+            self.start_date = self.settle_dates.min()
             self.logger.debug(f'filterd14: {self.settle_dates}, min={self.start_date}')
             
             # OLD

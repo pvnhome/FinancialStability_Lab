@@ -46,8 +46,9 @@ TIME_WINDOW = 30 #in days
 DETECT_OUTLIERS = False
 #parameters for simultaneous loss optimization --- used only FIX_TAU = False
 TETA_MAX = 5
-TETA_MIN = 1.5
-# TETA_MIN = 0.076
+#TETA_MIN = 0.5
+#TETA_MIN = 1.5
+TETA_MIN = 0.076
 RHO = 0.1
 ALPHA = 3
 
