@@ -62,10 +62,15 @@ def choosing_time_frame(settle_date, clean_data, number_cuts=3, lookback=180,
                         max_days=180, time_window=30, all_baskets_fixed=True, 
                         min_n_deal=10, fix_first_cut=True, baskets = False):
     
+    # df = (clean_data.reset_index()
+    #                  .assign(settle_date = pd.to_datetime(settle_date))
+    #                  .query('settle_date >= deal_date')
+    #                  .assign(reverse_span = lambda x: (x.settle_date - x.deal_date).dt.days))
     df = (clean_data.reset_index()
                      .assign(settle_date = pd.to_datetime(settle_date))
-                     .query('settle_date > deal_date')
-                     .assign(reverse_span = lambda x: (x.settle_date - x.deal_date).dt.days))
+                     .assign(deal_only_date = lambda x: [pd.to_datetime(dd.date()) for dd in x.deal_date])
+                     .query('settle_date >= deal_only_date')
+                     .assign(reverse_span = lambda x: (x.settle_date - x.deal_only_date).dt.days))
     
     if all_baskets_fixed:
         df = df.query('(reverse_span < @max_days)')
