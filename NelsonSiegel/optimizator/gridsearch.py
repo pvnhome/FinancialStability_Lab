@@ -28,12 +28,13 @@ class grid_search():
                  toniaDF,
                  maturities=None, 
                  clean_data = None, 
-                 thresholds = [0,180,365,5*365,np.inf],
+                 thresholds = [0, 370, 1825, 3600, np.inf],
                  several_dates = False,
                  inertia = False,
                  num_workers = 16,
                  jobid = 0,
-                 calendar = None):
+                 calendar = None,
+                 data_path = 'deals_data'):
         
         self.Loss = Loss
         self.beta_init = beta_init
@@ -77,6 +78,7 @@ class grid_search():
         self.iter_dates = None
         self.best_betas = None
         self.jobid = jobid
+        self.data_path = data_path
         
     #actual minimizaiton
     def minimization_del(self, tau, Loss, loss_args, beta_init, **kwargs):
@@ -429,7 +431,10 @@ class grid_search():
             else:
                 self.iter_dates = self.settle_dates
             
+            i = 0
+            lastind = len(self.iter_dates)
             for settle_date in self.iter_dates:
+                i = i + 1
                 
                 self.gen_one_date(settle_date)
                 
@@ -441,10 +446,9 @@ class grid_search():
                 constr = ({'type':'eq',
                            'fun': lambda x: np.array(x[0] + x[1]- np.log(1 + self.tonia_df.loc[settle_date][0]))},)
 
-                #binit = pd.DataFrame(self.beta_init)
-                #binit.to_excel(os.path.join(dataPath, f'{self.jobid}_beta_init_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
-                #TODO self.data_different_dates[settle_date].to_excel(os.path.join(dataPath, f'{self.jobid}_settle_date_data_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
-                #self.raw_data.to_excel(os.path.join(dataPath, f'{self.jobid}_raw_data_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
+                if i == lastind:
+                    self.logger.info('store deals to xlsx for {settle_date:%Y%m%d}')
+                    self.data_different_dates[settle_date].to_excel(os.path.join(self.data_path, f'{self.jobid}_settle_date_deals.xlsx'), sheet_name='deals', engine='xlsxwriter')
 
                 self.logger.debug('populating distributed tasks')
                 #parallelization of loop via dask multiprocessing
