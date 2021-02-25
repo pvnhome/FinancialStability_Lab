@@ -20,7 +20,7 @@ except ImportError as e:
     use_one_worker = True
 
 dataPath = '/home/victor/python/extracted_data'
-dataVariant = 'new_0_076'
+dataVariant = 'tonia_5_18'
 
 ##grid search over values of tau
 class grid_search():
