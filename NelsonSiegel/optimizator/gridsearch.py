@@ -447,7 +447,7 @@ class grid_search():
                            'fun': lambda x: np.array(x[0] + x[1]- np.log(1 + self.tonia_df.loc[settle_date][0]))},)
 
                 if i == lastind:
-                    self.logger.info('store deals to xlsx for {settle_date:%Y%m%d}')
+                    self.logger.info(f'store deals to xlsx for {settle_date:%Y%m%d}')
                     self.data_different_dates[settle_date].to_excel(os.path.join(self.data_path, f'{self.jobid}_settle_date_deals.xlsx'), sheet_name='deals', engine='xlsxwriter')
 
                 self.logger.debug('populating distributed tasks')
