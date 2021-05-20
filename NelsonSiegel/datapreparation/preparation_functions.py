@@ -100,9 +100,10 @@ def filtering(df, needed_bonds=None, use_otc=False, notes_in_otc=False, deal_mar
         print('specific symbols', df.shape)
     
     ####Exclude short-term secondary market
-    print(df.columns)
-    df = df.drop(df[(df['span'] <190)&(df['deal_type']!=1)].index)#(df['bond_symb']!='NTK')&
-    print(df.columns)
+    # Deleted by Vladislav Rastokin (20.05.2021)
+    #print(df.columns)
+    #df = df.drop(df[(df['span'] <190)&(df['deal_type']!=1)].index)#(df['bond_symb']!='NTK')&
+    #print(df.columns)
         
     #dropping empty columns
     df = df.dropna(how='all', axis=1)
