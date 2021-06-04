@@ -72,7 +72,8 @@ def choosing_time_frame(settle_date, clean_data, number_cuts=3, lookback=180,
         df = df.query('(reverse_span < @max_days)')
         
         if baskets == False:
-            treshold = [0, 370, 1825, 3600, np.inf]
+            #treshold = [0, 370, 1825, 3600, np.inf]
+            raise Exception('we need tresholds to be set')
         else:
             treshold = baskets
     else:

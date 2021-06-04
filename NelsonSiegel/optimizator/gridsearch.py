@@ -28,7 +28,8 @@ class grid_search():
                  toniaDF,
                  maturities=None, 
                  clean_data = None, 
-                 thresholds = [0, 370, 1825, 3600, np.inf],
+                 #thresholds = [0, 370, 1825, 3600, np.inf],
+                 thresholds = False,
                  several_dates = False,
                  inertia = False,
                  num_workers = 16,
@@ -44,7 +45,13 @@ class grid_search():
         self.results = []
         self.loss_res = {}
         self.several_dates = several_dates
-        self.thresholds = thresholds
+
+        #self.thresholds = thresholds
+        if thresholds == False:
+            #treshold = [0, 370, 1825, 3600, np.inf]
+            raise Exception('we need tresholds to be set')
+        else:
+            self.thresholds = thresholds
         
         if self.maturities is None:
             self.maturities = np.arange(0.0001, 30, 1 / 12) 
