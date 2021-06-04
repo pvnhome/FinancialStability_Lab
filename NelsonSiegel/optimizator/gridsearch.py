@@ -35,7 +35,9 @@ class grid_search():
                  num_workers = 16,
                  jobid = 0,
                  calendar = None,
-                 data_path = 'deals_data'): !!!
+                 data_path = 'deals_data',
+                 need_trace = False,
+                 trace_path = 'trace_path'):
         
         self.Loss = Loss
         self.beta_init = beta_init
@@ -85,7 +87,9 @@ class grid_search():
         self.iter_dates = None
         self.best_betas = None
         self.jobid = jobid
-        self.data_path = data_path !!!
+        self.data_path = data_path
+        self.need_trace = need_trace
+        self.trace_path = trace_path
         
     #actual minimizaiton
     def minimization_del(self, tau, Loss, loss_args, beta_init, **kwargs):
@@ -284,9 +288,16 @@ class grid_search():
             self.logger.debug(f'Z-score: {zscores[0]}, {zscores[1]}, {bsample.loc[:,"ytm"]}')
             self.data_different_dates[settle_date].loc[self.data_different_dates[settle_date].loc[:,'bond_maturity_type']==b, 'std']=zscores[2]
             bind_out = bsample.loc[(zscores[1])&(bsample.loc[:,'deal_type']!=1)].index.values
+
+            if self.need_trace:              
+                bn = f'{b}'.replace('(', '').replace(')', '').replace('[', '').replace(']', '').replace(' ', '').replace('.', '_').replace(',', '_')
+                self.logger.debug(f'bond_maturity_type name: {b} -> {bn}')
+                zscores[0].to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_{bn}_zscore_0.xlsx'), sheet_name='zscores0', engine='xlsxwriter')
+                zscores[1].to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_{bn}_zscore_1.xlsx'), sheet_name='zscores1', engine='xlsxwriter')
             
             if bind_out.size!= 0:
                 ind_out.append(bind_out)
+                
         ind_out = [item for sublist in ind_out for item in sublist]
         
         self.logger.debug(f'DF shape: {self.data_different_dates[settle_date].shape} - original')
@@ -296,6 +307,9 @@ class grid_search():
         self.logger.debug(f'DF shape: {self.data_different_dates[settle_date].shape} - adjusted')
 
         self.logger.debug(f'Generating sample for {settle_date:%d.%m.%Y} - Done!')
+        
+        if self.need_trace and not self.dropped_deals[settle_date].empty:              
+            self.dropped_deals[settle_date].to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_deals_dropped_by_zscore.xlsx'), sheet_name='dropped_deals', engine='xlsxwriter')
     
     def new_dates(self, new_end_date = None):
         
@@ -453,11 +467,11 @@ class grid_search():
                 constr = ({'type':'eq',
                            'fun': lambda x: np.array(x[0] + x[1]- np.log(1 + self.tonia_df.loc[settle_date][0]))},)
 
-!!!
-                binit = pd.DataFrame(self.beta_init)
-                binit.to_excel(os.path.join(dataPath, f'{self.jobid}_beta_init_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
-                self.data_different_dates[settle_date].to_excel(os.path.join(dataPath, f'{self.jobid}_settle_date_data_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
-                self.raw_data.to_excel(os.path.join(dataPath, f'{self.jobid}_raw_data_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
+                if self.need_trace:              
+                    binit = pd.DataFrame(self.beta_init)
+                    binit.to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_beta_init.xlsx'), sheet_name='beta_init', engine='xlsxwriter')
+                    self.data_different_dates[settle_date].to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_settle_date_deals.xlsx'), sheet_name='deals', engine='xlsxwriter')
+                    self.raw_data.to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_raw_data.xlsx'), sheet_name='raw_data', engine='xlsxwriter')
 
                 if i == lastind:
                     self.logger.info(f'store deals to xlsx for {settle_date:%Y%m%d}')
@@ -488,7 +502,8 @@ class grid_search():
                 self.logger.info(f'Beta best: {self.beta_best}')
                 self.logger.info(f'Previous beta set to {self.previous_curve}')
                 
-                loss_frame.to_excel(os.path.join(dataPath, f'{self.jobid}_loss_frame_{settle_date:%Y%m%d}_{dataVariant}.xlsx'), sheet_name=dataVariant, engine='xlsxwriter')
+                if self.need_trace:              
+                    loss_frame.to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_loss_frame.xlsx'), sheet_name='loss_frame', engine='xlsxwriter')
                 
             self.update_date = None          
         return loss_frame
