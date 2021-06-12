@@ -8,7 +8,11 @@ except ImportError as e:
     possible_detect_outliers = False
 import CONFIG
 
+LOGGER_NAME = 'ADAPTIVE_SAMPLING'
+
 def adaptive_samples(df, time_window, min_n_deal=10, all_baskets_fixed=True):
+    logger = logging.getLogger(LOGGER_NAME)
+    logger.debug('adaptive_samples')
     
     big_ind = []
     if not all_baskets_fixed:
@@ -22,9 +26,10 @@ def adaptive_samples(df, time_window, min_n_deal=10, all_baskets_fixed=True):
             #loop while there is too few deals
             while filtered_deals.shape[0] < min_n_deal:
                 temp_time_wind += 5
-                if temp_time_wind > 180:
+                if temp_time_wind > 365:
                     break
                 filtered_deals = deals[deals.reverse_span < temp_time_wind]
+            logger.debug(f'filtered deals count for {mat_type} = {filtered_deals.shape[0]}, temp_time_wind = {temp_time_wind}')
             big_ind.extend(filtered_deals.index.values)
         df_ = df.loc[big_ind]
         
@@ -32,10 +37,12 @@ def adaptive_samples(df, time_window, min_n_deal=10, all_baskets_fixed=True):
         n_additional_deals = 5
         if df_.span.max() < 3 * 365:
             long_span_df = df[df.span > 3 * 365].sort_values(by='reverse_span').iloc[:n_additional_deals - 1]
+            logger.debug(f'medium term: {long_span_df}')
             big_ind.extend(long_span_df.index.values)
         #Add long term deals if they exempt from sample
         if df_.span.max() < 8 * 365:
             long_span_df = df[df.span >= 8 * 365].sort_values(by='reverse_span').iloc[:n_additional_deals - 1]
+            logger.debug(f'medium term: {long_span_df}')
             big_ind.extend(long_span_df.index.values)
         df = df.loc[big_ind]
     else:
