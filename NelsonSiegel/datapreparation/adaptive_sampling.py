@@ -37,13 +37,13 @@ def adaptive_samples(df, time_window, min_n_deal=10, all_baskets_fixed=True):
         n_additional_deals = 5
         if df_.span.max() < 3 * 365:
             long_span_df = df[df.span > 3 * 365].sort_values(by='reverse_span').iloc[:n_additional_deals - 1]
-            logger.debug(f'medium term: {long_span_df}')
-            big_ind.extend(long_span_df.index.values)
+            logger.debug(f'medium term: {long_span_df} (not added)')
+            #big_ind.extend(long_span_df.index.values)
         #Add long term deals if they exempt from sample
         if df_.span.max() < 8 * 365:
             long_span_df = df[df.span >= 8 * 365].sort_values(by='reverse_span').iloc[:n_additional_deals - 1]
-            logger.debug(f'medium term: {long_span_df}')
-            big_ind.extend(long_span_df.index.values)
+            logger.debug(f'medium term: {long_span_df} (not added)')
+            #big_ind.extend(long_span_df.index.values)
         df = df.loc[big_ind]
     else:
         for mat_type in df.bond_maturity_type.unique():
