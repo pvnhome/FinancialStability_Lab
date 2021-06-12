@@ -13,7 +13,7 @@ LOGGER_NAME = 'ADAPTIVE_SAMPLING'
 
 def adaptive_samples(df, time_window, min_n_deal=10, all_baskets_fixed=True):
     logger = logging.getLogger(LOGGER_NAME)
-    logger.debug('adaptive_samples')
+    logger.debug(f'adaptive_samples: time_window={time_window}, min_n_deal={min_n_deal}, all_baskets_fixed={all_baskets_fixed}')
     
     big_ind = []
     if not all_baskets_fixed:
