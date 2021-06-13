@@ -9,7 +9,7 @@ except ImportError as e:
     possible_detect_outliers = False
 import CONFIG
 
-LOGGER_NAME = 'ADAPTIVE_SAMPLING'
+LOGGER_NAME = 'datapreparation.adaptive_sampling'
 
 def adaptive_samples(df, time_window, min_n_deal=10, all_baskets_fixed=True):
     logger = logging.getLogger(LOGGER_NAME)
@@ -27,7 +27,7 @@ def adaptive_samples(df, time_window, min_n_deal=10, all_baskets_fixed=True):
             #loop while there is too few deals
             while filtered_deals.shape[0] < min_n_deal:
                 temp_time_wind += 5
-                if temp_time_wind > 365:
+                if temp_time_wind > 180:
                     break
                 filtered_deals = deals[deals.reverse_span < temp_time_wind]
             logger.debug(f'filtered deals count for {mat_type} = {filtered_deals.shape[0]}, temp_time_wind = {temp_time_wind}')
@@ -39,12 +39,12 @@ def adaptive_samples(df, time_window, min_n_deal=10, all_baskets_fixed=True):
         if df_.span.max() < 3 * 365:
             long_span_df = df[df.span > 3 * 365].sort_values(by='reverse_span').iloc[:n_additional_deals - 1]
             logger.debug(f'medium term: {long_span_df} (not added)')
-            #big_ind.extend(long_span_df.index.values)
+            big_ind.extend(long_span_df.index.values)
         #Add long term deals if they exempt from sample
         if df_.span.max() < 8 * 365:
             long_span_df = df[df.span >= 8 * 365].sort_values(by='reverse_span').iloc[:n_additional_deals - 1]
             logger.debug(f'medium term: {long_span_df} (not added)')
-            #big_ind.extend(long_span_df.index.values)
+            big_ind.extend(long_span_df.index.values)
         df = df.loc[big_ind]
     else:
         for mat_type in df.bond_maturity_type.unique():
@@ -57,7 +57,7 @@ def adaptive_samples(df, time_window, min_n_deal=10, all_baskets_fixed=True):
             #taking most Nth recent_deals
             needed_rev_span = rev_span_deals >= min_n_deal
             if  (~needed_rev_span).all():
-                print(f'Too few deals for tenors in {mat_type}, # deals less than {min_n_deal}')
+                logger.warn(f'Too few deals for tenors in {mat_type}, # deals less than {min_n_deal}')
                 rev_span_cut = rev_span_deals.index.max()
             else:
                 rev_span_cut = rev_span_deals[needed_rev_span].index.min()                

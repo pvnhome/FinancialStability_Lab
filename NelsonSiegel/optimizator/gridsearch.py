@@ -37,7 +37,8 @@ class grid_search():
                  calendar = None,
                  data_path = 'deals_data',
                  need_trace = False,
-                 trace_path = 'trace_path'):
+                 trace_path = 'trace_path',
+                 min_n_deal = CONFIG.MIN_N_DEAL):
         
         self.Loss = Loss
         self.beta_init = beta_init
@@ -90,6 +91,7 @@ class grid_search():
         self.data_path = data_path
         self.need_trace = need_trace
         self.trace_path = trace_path
+        self.min_n_deal = min_n_deal
         
     #actual minimizaiton
     def minimization_del(self, tau, Loss, loss_args, beta_init, **kwargs):
@@ -270,14 +272,14 @@ class grid_search():
     
        
         '''   
-        self.logger.debug('gen_one_date')
+        self.logger.debug(f'gen_one_date: min_n_deal={self.min_n_deal}')
 
         if not hasattr(self, 'data_different_dates'):
             self.data_different_dates = {}
             
         self.data_different_dates[settle_date] = creating_sample(settle_date, 
                                                                  self.raw_data, 
-                                                                 min_n_deal=CONFIG.MIN_N_DEAL, 
+                                                                 min_n_deal=self.min_n_deal, 
                                                                  time_window=CONFIG.TIME_WINDOW, 
                                                                  thresholds = self.thresholds)
         
