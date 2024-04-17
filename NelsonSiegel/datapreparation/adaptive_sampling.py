@@ -9,14 +9,13 @@ except ImportError as e:
     possible_detect_outliers = False
 import CONFIG
 
-LOGGER_NAME = 'datapreparation.adaptive_sampling'
-
 def adaptive_samples(df, time_window, min_n_deal=10, all_baskets_fixed=True):
-    logger = logging.getLogger(LOGGER_NAME)
+    logger = logging.getLogger(__name__)
     logger.debug(f'adaptive_samples: time_window={time_window}, min_n_deal={min_n_deal}, all_baskets_fixed={all_baskets_fixed}')
     
     big_ind = []
     if not all_baskets_fixed:
+        logger.debug('adaptive_samples: not all_baskets_fixed')
         
         for mat_type in df.bond_maturity_type.unique():
             #filtering by time span of bond and reverse span
@@ -47,7 +46,10 @@ def adaptive_samples(df, time_window, min_n_deal=10, all_baskets_fixed=True):
             big_ind.extend(long_span_df.index.values)
         df = df.loc[big_ind]
     else:
+        logger.debug('adaptive_samples: all_baskets_fixed')
+        
         for mat_type in df.bond_maturity_type.unique():
+            logger.debug(f'adaptive_samples: process bond_maturity_type = {mat_type}')
             
             #filtering by time span of bond and reverse span
             deals = df[df.bond_maturity_type == mat_type].sort_values(by='reverse_span')
@@ -57,7 +59,7 @@ def adaptive_samples(df, time_window, min_n_deal=10, all_baskets_fixed=True):
             #taking most Nth recent_deals
             needed_rev_span = rev_span_deals >= min_n_deal
             if  (~needed_rev_span).all():
-                logger.warn(f'Too few deals for tenors in {mat_type}, # deals less than {min_n_deal}')
+                logger.warn(f'adaptive_samples: too few deals for tenors in {mat_type}, deals less than {min_n_deal}')
                 rev_span_cut = rev_span_deals.index.max()
             else:
                 rev_span_cut = rev_span_deals[needed_rev_span].index.min()                
@@ -69,6 +71,11 @@ def adaptive_samples(df, time_window, min_n_deal=10, all_baskets_fixed=True):
 def choosing_time_frame(settle_date, clean_data, number_cuts=3, lookback=180,
                         max_days=180, time_window=30, all_baskets_fixed=True, 
                         min_n_deal=10, fix_first_cut=True, baskets = False):
+
+    logger = logging.getLogger(__name__)
+    logger.debug(f'choosing_time_frame: settle_date={settle_date}, number_cuts={number_cuts}, lookback={lookback}, max_days={max_days}, time_window={time_window}, all_baskets_fixed={all_baskets_fixed}, min_n_deal={min_n_deal}, fix_first_cut={fix_first_cut}, baskets={baskets}')
+
+    logger.debug(f'choosing_time_frame: shape on start {clean_data.shape}');
     
     df = (clean_data.reset_index()
                      .assign(settle_date = pd.to_datetime(settle_date))
@@ -77,7 +84,13 @@ def choosing_time_frame(settle_date, clean_data, number_cuts=3, lookback=180,
                      .assign(reverse_span = lambda x: (x.settle_date - x.deal_only_date).dt.days))
     
     if all_baskets_fixed:
+        logger.debug('choosing_time_frame: all_baskets_fixed'); 
+
+        logger.debug(f'choosing_time_frame: shape before (reverse_span < @max_days) {df.shape}');
+        
         df = df.query('(reverse_span < @max_days)')
+
+        logger.debug(f'choosing_time_frame: shape after (reverse_span < @max_days) {df.shape}');
         
         if baskets == False:
             #treshold = [0, 370, 1825, 3600, np.inf]
@@ -85,6 +98,8 @@ def choosing_time_frame(settle_date, clean_data, number_cuts=3, lookback=180,
         else:
             treshold = baskets
     else:
+        logger.debug('choosing_time_frame: not all_baskets_fixed');
+         
         df_ = df.query('(settle_date < end_date)')
         treshold = [0]
         #if we want to fix cut at first year
@@ -109,12 +124,16 @@ def choosing_time_frame(settle_date, clean_data, number_cuts=3, lookback=180,
                     print('Number of cuts is too high')
                     break
             treshold.append(cut_line)
+            
     df.loc[:,'bond_maturity_type'] = pd.cut(df.span, bins=treshold)
-    df = df[df.reverse_span < max_days]
+    df = df[df.reverse_span < max_days] # Дублируется?
+
+    logger.debug(f'choosing_time_frame: shape after pd.cut(df.span, bins=treshold) {df.shape}');
         
     #filtering based on time window  
     filtered_data = adaptive_samples(df, time_window=time_window, min_n_deal=min_n_deal,
                                      all_baskets_fixed=all_baskets_fixed)
+    
     return filtered_data.set_index(['deal_date', 'symbol', 'deal_price'])
 
 def outlier_detection(data, contamination=0.015, n_jobs=1, **kwargs):
@@ -146,9 +165,14 @@ def creating_sample(settle_date, data, time_window, min_n_deal, number_cuts=3,
     lookback: int
         Number of days
     '''
+    
+    logger = logging.getLogger(__name__)
+    logger.debug(f'creating_sample: settle_date={settle_date}, time_window={time_window}, min_n_deal={min_n_deal}, number_cuts={number_cuts}, lookback={lookback}, max_days={max_days}, adaptive={adaptive}, alpha={alpha}, fix_first_cut={fix_first_cut}, detect_outlier={detect_outlier}, all_baskets_fixed={all_baskets_fixed}, thresholds={thresholds}')
+    
     thresholds = thresholds
     if adaptive:
-       ##choosing right k
+        logger.debug('creating_sample: adaptive') 
+        ##choosing right k
         ncuts_ser = pd.Series()
         k_range = range(1, 6) if fix_first_cut else range(2, 7)
         
@@ -171,9 +195,13 @@ def creating_sample(settle_date, data, time_window, min_n_deal, number_cuts=3,
             ncuts_ser[str(k)] = loss_met
         #right k is the k that minimize loss
         number_cuts = int(ncuts_ser.argmin())
+    else:
+        logger.debug('creating_sample: not adaptive') 
         
     if fix_first_cut:
         number_cuts = number_cuts - 1
+
+    logger.debug(f'creating_sample: number_cuts={number_cuts}') 
         
     data = choosing_time_frame(settle_date, data, number_cuts=number_cuts, max_days=max_days,
                                lookback=lookback, min_n_deal=min_n_deal, all_baskets_fixed=all_baskets_fixed,
@@ -181,7 +209,9 @@ def creating_sample(settle_date, data, time_window, min_n_deal, number_cuts=3,
     #throwing out outliers
     if detect_outlier:
         if possible_detect_outliers:
+            logger.debug('creating_sample: detect_outlier')
             data = outlier_detection(data)
         else:
-            print('For detecting outliers sklearn package should be installed')
+            logger.warn('creating_sample: for detecting outliers sklearn package should be installed')
+            
     return data

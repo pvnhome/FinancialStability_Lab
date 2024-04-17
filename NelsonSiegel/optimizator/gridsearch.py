@@ -17,6 +17,7 @@ try:
     from dask import compute, delayed
     use_one_worker = False
 except ImportError as e:
+    print(f'dask import error: {e}')
     use_one_worker = True
 
 ##grid search over values of tau
@@ -397,7 +398,7 @@ class grid_search():
 
         #if num_worker == 1 dask will not be used at all to avoid overhead expenses
         if self.num_workers == 1:
-            self.logger.debug('start: num_workers == 1')
+            self.logger.debug('loss_grid: start, num_workers == 1')
 
             res_ = []
             for i, tau in enumerate(self.tau_grid):
@@ -405,7 +406,7 @@ class grid_search():
                           self.loss_args, self.beta_init, **kwargs)
                 res_.append(res)
         elif self.several_dates:
-            self.logger.debug('start: several_dates')
+            self.logger.debug('loss_grid: start, several_dates')
 
             loss_args = self.loss_args
             
@@ -445,7 +446,7 @@ class grid_search():
             self.logger.info(f'Optimization for {date:%d.%m.%Y} - Done!')
         
         elif self.inertia:
-            self.logger.debug('start: inertia')
+            self.logger.debug('loss_grid: start, inertia')
 
             loss_args = self.loss_args
             
@@ -527,14 +528,23 @@ class grid_search():
     
     #actual fitting of data
     def fit(self, return_frame=False, **kwargs):
+        self.logger.debug('fit')
+        
         if use_one_worker:
             self.logger.warning('Multiprocessing is not enabled as dask is not installed. Install dask to enbale multiprocessing.')
             self.num_workers = 1
         else:
             self.num_workers = self.num_workers
+            
+        # Запускаем процесс оптимизации.    
         self.loss_frame = self.loss_grid(**kwargs)
+        
         #loss_frame = self.filter_frame(loss_frame)
+        
+        # Ищем лучший результат.
         self.beta_best = self.loss_frame.loc[self.loss_frame['loss'].argmin(), :].values[:-1]
+        
+        # self.best_betas где то используются?
         best_betas = {}
         for date in self.settle_dates:
             idx = self.loss_res[date].loc[:, 'loss'].idxmin()
@@ -542,6 +552,8 @@ class grid_search():
         self.best_betas = best_betas
 
         if return_frame:
+            self.logger.debug('fit: return beta_best, loss_frame')
             return self.beta_best, self.loss_frame
         else:
+            self.logger.debug('fit: return beta_best')
             return self.beta_best
