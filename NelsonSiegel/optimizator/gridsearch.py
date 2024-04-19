@@ -6,19 +6,12 @@ import pickle
 import time
 import h5py
 from scipy.optimize import minimize
+import dask.multiprocessing
+from dask import compute, delayed
 
-from datapreparation.adaptive_sampling import creating_sample
 import CONFIG
 from ns_func import Z, par_yield
-
-#checking if dask is installed
-try:
-    import dask.multiprocessing
-    from dask import compute, delayed
-    use_one_worker = False
-except ImportError as e:
-    print(f'dask import error: {e}')
-    use_one_worker = True
+from datapreparation.adaptive_sampling import creating_sample
 
 ##grid search over values of tau
 class grid_search():
@@ -93,9 +86,10 @@ class grid_search():
         self.need_trace = need_trace
         self.trace_path = trace_path
         self.min_n_deal = min_n_deal
+        self.taskNmb = 1
         
     #actual minimizaiton
-    def minimization_del(self, tau, Loss, loss_args, beta_init, **kwargs):
+    def minimization_del(self, nmb, tau, Loss, loss_args, beta_init, **kwargs):
         '''
         Returns an array of beta parameters that minimizes loss function given value of tau
     
@@ -114,16 +108,19 @@ class grid_search():
     
        
         '''
-        logger = logging.getLogger(__name__)
-        logger.debug(f'minimization_del: tau = {tau}')
+        #logger = logging.getLogger(__name__)
+        self.logger.debug(f'[{nmb}] start minimization_del: tau = {tau}')
+        
         l_args = [arg for arg in loss_args]
         l_args.append(tau)
         l_args = tuple(l_args)
 
-        res_ = minimize(Loss, beta_init, args=l_args, **kwargs, callback=lambda xk: logger.debug(f'{xk}'))
+        res_ = minimize(Loss, beta_init, args=l_args, **kwargs, callback=lambda xk: logger.debug(f'[{nmb}] minimize={xk}'))
         
         if not res_.success:
             raise Exception(res_.message)
+
+        self.logger.debug(f'[{nmb}] end minimization_del: tau = {tau}, res={res_}')
          
         return res_
     
@@ -397,15 +394,16 @@ class grid_search():
         self.logger.debug('loss_grid')
 
         #if num_worker == 1 dask will not be used at all to avoid overhead expenses
-        if self.num_workers == 1:
-            self.logger.debug('loss_grid: start, num_workers == 1')
-
-            res_ = []
-            for i, tau in enumerate(self.tau_grid):
-                res = self.minimization_del(tau, self.Loss, 
-                          self.loss_args, self.beta_init, **kwargs)
-                res_.append(res)
-        elif self.several_dates:
+        #if self.num_workers == 1:
+        #    self.logger.debug('loss_grid: start, num_workers == 1')
+        #
+        #    res_ = []
+        #    for i, tau in enumerate(self.tau_grid):
+        #        res = self.minimization_del(tau, self.Loss, 
+        #                  self.loss_args, self.beta_init, **kwargs)
+        #        res_.append(res)
+        #elif self.several_dates:
+        if self.several_dates:
             self.logger.debug('loss_grid: start, several_dates')
 
             loss_args = self.loss_args
@@ -413,6 +411,8 @@ class grid_search():
             if not hasattr(self, 'data_different_dates'):
                 self.data_different_dates = {}
                 self.gen_subsets()
+            
+            self.initTaskNmb()    
             
             for date, dataset in self.data_different_dates.items():
                 
@@ -425,12 +425,12 @@ class grid_search():
                            'fun': lambda x: np.array(x[0] + x[1]- np.log(1 + self.tonia_df.loc[date][0]))},)
     
                 #parallelization of loop via dask multiprocessing
-                values = [delayed(self.minimization_del)(tau, self.Loss, 
+                values = [delayed(self.minimization_del)(self.nextTaskNmb(), tau, self.Loss, 
                           l_args, self.beta_init, constraints = constr, **kwargs) for tau in self.tau_grid]
     
                 res_ = compute(*values, scheduler='processes', num_workers=self.num_workers)
             #parallelization of loop via dask multiprocessing
-            values = [delayed(self.minimization_del)(tau, self.Loss, 
+            values = [delayed(self.minimization_del)(self.nextTaskNmb(), tau, self.Loss, 
                       self.loss_args, self.beta_init, **kwargs) for tau in self.tau_grid]
             res_ = compute(*values, get=dask.multiprocessing.get, num_workers=self.num_workers)
             
@@ -481,12 +481,21 @@ class grid_search():
                     self.data_different_dates[settle_date].to_excel(os.path.join(self.data_path, f'{self.jobid}_settle_date_deals.xlsx'), sheet_name='deals', engine='xlsxwriter')
 
                 self.logger.debug('populating distributed tasks')
+
+                self.initTaskNmb()    
+            
                 #parallelization of loop via dask multiprocessing
-                values = [delayed(self.minimization_del)(tau, self.Loss, 
+                values = [delayed(self.minimization_del)(self.nextTaskNmb(), tau, self.Loss, 
                           l_args, self.beta_init, constraints = constr, **kwargs) for tau in self.tau_grid]
                 
-                self.logger.info('start minimizing')
-                res_ = compute(*values, scheduler='processes', num_workers=self.num_workers)
+                # Отладка
+                # (см. https://docs.dask.org/en/latest/scheduler-overview.html#configuring-the-schedulers)
+                schedulerType='single-threaded'
+                # Продуктивная система
+                # schedulerType='processes'
+                
+                self.logger.info(f'start minimizing: settle_date={settle_date}, num_workers={self.num_workers}, schedulerType={schedulerType}')
+                res_ = compute(*values, scheduler=schedulerType, num_workers=self.num_workers)
                 
                 #putting betas and Loss value in Pandas DataFrame
                 loss_frame = pd.DataFrame([], columns=['b0', 'b1', 'b2', 'teta', 'loss'])
@@ -530,12 +539,6 @@ class grid_search():
     def fit(self, return_frame=False, **kwargs):
         self.logger.debug('fit')
         
-        if use_one_worker:
-            self.logger.warning('Multiprocessing is not enabled as dask is not installed. Install dask to enbale multiprocessing.')
-            self.num_workers = 1
-        else:
-            self.num_workers = self.num_workers
-            
         # Запускаем процесс оптимизации.    
         self.loss_frame = self.loss_grid(**kwargs)
         
@@ -557,3 +560,10 @@ class grid_search():
         else:
             self.logger.debug('fit: return beta_best')
             return self.beta_best
+
+    def initTaskNmb(self):
+        self.taskNmb = 1
+
+    def nextTaskNmb(self):
+        self.taskNmb += 1
+        return self.taskNmb 
