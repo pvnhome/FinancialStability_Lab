@@ -126,12 +126,14 @@ def new_price_loss(beta, df, coupons_cf, streak_data, rho=0.2, weight_scheme='no
     #estimating price
     price_hat = (D(streak_data[ind], beta) * coupons_cf[ind]).sum().values
 
-    price = np.array([df.index[i][2] for i in range(df.shape[0])])
+    #price = np.array([df.index[i][2] for i in range(df.shape[0])])
+    stand_price = df['stand_price'].values
 
     #calculatting Loss
     W = weight(beta, df=df, rho=rho, weight_scheme=weight_scheme)
     
-    Loss = np.sum(W * ((price - price_hat)*100)**2)
+    #Loss = np.sum(W * ((stand_price - price_hat)*100)**2)
+    Loss = np.sum(W * (stand_price - price_hat)**2)
     
     return Loss
 
@@ -193,9 +195,9 @@ def simplified_ytm_hat(deal, beta):
     # D
     # ytm_hat = D(years_span, beta);
     # 3
-    #ytm_hat = np.exp(beta[0] + beta[1] * ((1-np.exp(-years_span/beta[3]))/(years_span/beta[3])) + ((1-np.exp(-years_span/beta[3]))/(years_span/beta[3]) - np.exp(-years_span/beta[3])) * beta[2]) - 1
+    ytm_hat = np.exp(beta[0] + beta[1] * ((1-np.exp(-years_span/beta[3]))/(years_span/beta[3])) + ((1-np.exp(-years_span/beta[3]))/(years_span/beta[3]) - np.exp(-years_span/beta[3])) * beta[2]) - 1
     # Z
-    ytm_hat = Z(years_span, beta);
+    # ytm_hat = Z(years_span, beta);
 
     print(f'{deal.name}: {deal.span}/{deal.base_time}={years_span}, ytm={deal.ytm}, ytm_hat={ytm_hat}')
     #print(f'{deal.ytm};{ytm_hat}')
