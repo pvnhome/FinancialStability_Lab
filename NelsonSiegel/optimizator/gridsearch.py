@@ -58,7 +58,6 @@ class grid_search():
         self.start_date = start_date
         self.end_date = end_date
         self.freq = freq
-        self.num_workers = num_workers
         self.tonia_df = toniaDF
         self.inertia = inertia
         self.dropped_deals = {}
@@ -86,7 +85,29 @@ class grid_search():
         self.need_trace = need_trace
         self.trace_path = trace_path
         self.min_n_deal = min_n_deal
+        
+        # =======================================================
+        # Параметры мультизадачности.
+        # =======================================================
         self.taskNmb = 1
+        
+        # На всякий случай проверяем указанное читсло потоков.
+        if num_workers < 1:
+           self.num_workers = 1
+        else:
+           self.num_workers = num_workers
+
+        # Количество потоков равное 1 выбираем только для отладки.
+        # Вместе с этим переключаемся еще и в режим single-threaded 
+        # (см. https://docs.dask.org/en/latest/scheduler-overview.html#configuring-the-schedulers)
+        if self.num_workers == 1:
+            # Предполагаем, что это режим отладки
+            self.schedulerType = 'single-threaded'
+            self.logger.warn('Only one num_worker. Switch to single-threaded mode. Use only for debug.')
+        else:
+            # Предполагаем, что это продуктивная система
+            self.schedulerType = 'processes'
+        # =======================================================
         
     #actual minimizaiton
     def minimization_del(self, nmb, tau, Loss, loss_args, beta_init, **kwargs):
@@ -115,7 +136,7 @@ class grid_search():
         l_args.append(tau)
         l_args = tuple(l_args)
 
-        res_ = minimize(Loss, beta_init, args=l_args, **kwargs, callback=lambda xk: logger.debug(f'[{nmb}] minimize={xk}'))
+        res_ = minimize(Loss, beta_init, args=l_args, **kwargs, callback=lambda xk: self.logger.debug(f'[{nmb}] minimize: xk={xk}'))
         
         if not res_.success:
             raise Exception(res_.message)
@@ -428,7 +449,7 @@ class grid_search():
                 values = [delayed(self.minimization_del)(self.nextTaskNmb(), tau, self.Loss, 
                           l_args, self.beta_init, constraints = constr, **kwargs) for tau in self.tau_grid]
     
-                res_ = compute(*values, scheduler='processes', num_workers=self.num_workers)
+                res_ = compute(*values, scheduler=self.schedulerType, num_workers=self.num_workers)
             #parallelization of loop via dask multiprocessing
             values = [delayed(self.minimization_del)(self.nextTaskNmb(), tau, self.Loss, 
                       self.loss_args, self.beta_init, **kwargs) for tau in self.tau_grid]
@@ -488,14 +509,8 @@ class grid_search():
                 values = [delayed(self.minimization_del)(self.nextTaskNmb(), tau, self.Loss, 
                           l_args, self.beta_init, constraints = constr, **kwargs) for tau in self.tau_grid]
                 
-                # Отладка
-                # (см. https://docs.dask.org/en/latest/scheduler-overview.html#configuring-the-schedulers)
-                schedulerType='single-threaded'
-                # Продуктивная система
-                # schedulerType='processes'
-                
-                self.logger.info(f'start minimizing: settle_date={settle_date}, num_workers={self.num_workers}, schedulerType={schedulerType}')
-                res_ = compute(*values, scheduler=schedulerType, num_workers=self.num_workers)
+                self.logger.info(f'start minimizing: settle_date={settle_date}, num_workers={self.num_workers}, schedulerType={self.schedulerType}')
+                res_ = compute(*values, scheduler=self.schedulerType, num_workers=self.num_workers)
                 
                 #putting betas and Loss value in Pandas DataFrame
                 loss_frame = pd.DataFrame([], columns=['b0', 'b1', 'b2', 'teta', 'loss'])
