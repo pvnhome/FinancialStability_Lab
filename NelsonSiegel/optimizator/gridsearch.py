@@ -38,7 +38,8 @@ class grid_search():
                  data_path = 'deals_data',
                  need_trace = False,
                  trace_path = 'trace_path',
-                 min_n_deal = CONFIG.MIN_N_DEAL):
+                 min_n_deal = CONFIG.MIN_N_DEAL,
+                 outlierThresh=3.5):
         
         self.Loss = Loss
         self.beta_init = beta_init
@@ -92,6 +93,7 @@ class grid_search():
         self.need_trace = need_trace
         self.trace_path = trace_path
         self.min_n_deal = min_n_deal
+        self.outlierThresh=outlierThresh
         
     #actual minimizaiton
     def minimization_del(self, tau, Loss, loss_args, beta_init, **kwargs):
@@ -126,7 +128,7 @@ class grid_search():
          
         return res_
     
-    def is_outlier(self, points, thresh=3.5, score_type ='mzscore'):
+    def is_outlier(self, points):
         '''
         Returns a boolean array with True if points are outliers and False
         otherwise.
@@ -134,9 +136,6 @@ class grid_search():
         Parameters:
         -----------
             points : An numobservations by numdimensions array of observations
-            thresh : The modified z-score to use as a threshold. Observations with
-                a modified z-score (based on the median absolute deviation) greater
-                than this value will be classified as outliers.
     
         Returns:
         --------
@@ -148,45 +147,22 @@ class grid_search():
             Handle Outliers', The ASQC Basic References in Quality Control:
             Statistical Techniques, Edward F. Mykytka, Ph.D., Editor.
         '''
-        if score_type == 'zscore':
-            thresh = 2
-            
-#            if len(points.shape) >= 1:
-#                points = points.loc[:,'ytm'][:,None]
-            
-            if (self.inertia) & (len(self.previous_curve)!=0):
-                self.logger.debug(f'diff to previous curve, Z-score threshold: {thresh}')
-                diff = (points.loc[:,'ytm']*100 - (np.exp(Z(points.loc[:,'span']/365, self.previous_curve))-1)*100)
-            else:
-    #            self.logger.debug(points)
-                self.logger.debug('first filtering')
-                mean = np.mean(points.loc[:,'ytm'])
-                diff = (points.loc[:,'ytm'] - mean)
-                
-            
-            sstd = np.std(diff)
-        
-            z_score = np.abs(diff / sstd)
-            
-        elif score_type == 'mzscore':
-#            if len(points.shape) >= 1:
-#                points = points.loc[:,'ytm'][:,None]
-            
-            if (self.inertia) & (len(self.previous_curve)!=0):
-                self.logger.debug(f'diff to previous curve, modified Z-score threshold: {thresh}')
-                diff = np.abs(points.loc[:,'ytm']- (np.exp(par_yield(points.loc[:,'span'].values/365, self.previous_curve))-1))*100
-            else:
-                self.logger.debug('first filtering')
-                median = np.median(points.loc[:,'ytm'])
-#                diff = (points.loc[:,'ytm']*100- median*100)**2
-                diff = np.abs(points.loc[:,'ytm'] - median)*100
-                
-#            sstd = np.sqrt(diff)
-            sstd = np.median(diff) #med_abs_deviation
-        
-            z_score = 0.6745 * diff / sstd
 
-        return (z_score, (z_score > thresh), sstd)
+        self.logger.debug(f'is_outlier: modified Z-score threshold = {self.outlierThresh}')
+            
+        if (self.inertia) & (len(self.previous_curve)!=0):
+            self.logger.debug('diff to previous curve')
+            diff = np.abs(points.loc[:,'ytm']- (np.exp(par_yield(points.loc[:,'span'].values/365, self.previous_curve))-1))*100
+        else:
+            self.logger.debug('first filtering')
+            median = np.median(points.loc[:,'ytm'])
+            diff = np.abs(points.loc[:,'ytm'] - median)*100
+            
+        sstd = np.median(diff) # med_abs_deviation
+    
+        z_score = 0.6745 * diff / sstd
+
+        return (z_score, (z_score > self.outlierThresh), sstd)
     
     #filtered data generation
     def gen_subsets(self,):
