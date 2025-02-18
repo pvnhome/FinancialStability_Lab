@@ -15,21 +15,24 @@ from ns_func import Z, par_yield
 try:
     import dask.multiprocessing
     from dask import compute, delayed
-    use_one_worker = False
+    no_dask = False
 except ImportError as e:
-    use_one_worker = True
+    no_dask = True
 
 ##grid search over values of tau
 class grid_search():
     def __init__(self, tau_grid, 
                  Loss, beta_init, 
-                 loss_args, start_date, 
-                 end_date, freq, 
+                 start_date, end_date, 
+                 freq, 
                  toniaDF,
-                 maturities=None, 
-                 clean_data = None, 
-                 #thresholds = [0, 370, 1825, 3600, np.inf],
-                 thresholds = False,
+                 thresholds,
+                 loss_args,
+                 loss_args_auct, 
+                 raw_data, 
+                 raw_data_auct, 
+                 parMsi = False,
+                 maturities = None, 
                  several_dates = False,
                  inertia = False,
                  num_workers = 16,
@@ -40,19 +43,21 @@ class grid_search():
                  trace_path = 'trace_path',
                  min_n_deal = CONFIG.MIN_N_DEAL,
                  outlierThresh=3.5):
+
+        self.logger = logging.getLogger(__name__)
         
         self.Loss = Loss
         self.beta_init = beta_init
         self.loss_args = loss_args
+        self.loss_args_auct = loss_args_auct
+        self.parMsi = parMsi
         self.tau_grid = tau_grid
         self.maturities = maturities
         self.results = []
         self.loss_res = {}
         self.several_dates = several_dates
 
-        #self.thresholds = thresholds
-        if thresholds == False:
-            #treshold = [0, 370, 1825, 3600, np.inf]
+        if thresholds is None:
             raise Exception('we need tresholds to be set')
         else:
             self.thresholds = thresholds
@@ -60,8 +65,9 @@ class grid_search():
         if self.maturities is None:
             self.maturities = np.arange(0.0001, 30, 1 / 12) 
         
-        if clean_data is not None:
-            self.raw_data = clean_data
+        self.raw_data = raw_data
+        self.raw_data_auct = raw_data_auct
+            
         self.start_date = start_date
         self.end_date = end_date
         self.freq = freq
@@ -69,16 +75,9 @@ class grid_search():
         self.tonia_df = toniaDF
         self.inertia = inertia
         self.dropped_deals = {}
-        self.logger = logging.getLogger(__name__)
         
         if self.several_dates or self.inertia:
-            full_range = pd.date_range(start=start_date, end=end_date, normalize=True, freq='D', closed='right')
-            self.logger.debug(f'full: {full_range}')
-            filterd_range = pd.DatetimeIndex(list(filter(lambda d: (calendar.index.contains(d) and calendar.loc[d].daytype=='Y') or (not calendar.index.contains(d) and d.dayofweek!=5 and d.dayofweek!=6), full_range)))
-            self.logger.debug(f'filterd: {filterd_range}')
-            self.settle_dates = filterd_range[-2:]
-            self.start_date = self.settle_dates.min()
-            self.logger.debug(f'filterd14: {self.settle_dates}, min={self.start_date}')
+            self.settle_dates, self.start_date = self.calculateSettleDates(calendar)
             
         self.previous_curve = []
         self.tasks = []
@@ -94,6 +93,31 @@ class grid_search():
         self.trace_path = trace_path
         self.min_n_deal = min_n_deal
         self.outlierThresh=outlierThresh
+
+    def calculateSettleDates(self, calendar):
+        '''
+        Метод для определения расчетной даты и даты прогрева с учетом календаря торговых дней.
+        '''
+        
+        full_range = pd.date_range(start=self.start_date, end=self.end_date, normalize=True, freq='D', closed='right')
+        self.logger.debug(f'full: {full_range}')
+        
+        filterd_range = pd.DatetimeIndex(list(filter(lambda d: self.isTradeDay(d, calendar), full_range)))
+        self.logger.debug(f'filterd: {filterd_range}')
+        
+        settleDates = filterd_range[-2:]
+        
+        startDate = settleDates.min()
+        
+        self.logger.debug(f'filterd14: {settleDates}, min={startDate}')
+        
+        return settleDates, startDate
+        
+    def isTradeDay(self, day, calendar):
+        '''
+        Метод для определения торгового дня с учетом календаря.
+        '''
+        return (calendar.index.contains(day) and calendar.loc[day].daytype=='Y') or (not calendar.index.contains(day) and day.dayofweek!=5 and day.dayofweek!=6)
         
     #actual minimizaiton
     def minimization_del(self, tau, Loss, loss_args, beta_init, **kwargs):
@@ -250,44 +274,82 @@ class grid_search():
         '''   
         self.logger.debug(f'gen_one_date: min_n_deal={self.min_n_deal}')
 
+        idDatePrefix = ''
+        if self.need_trace:              
+            idDatePrefix = f'{self.jobid}_{settle_date:%Y%m%d}'
+
         if not hasattr(self, 'data_different_dates'):
             self.data_different_dates = {}
+
+        parMsiActive = self.parMsi & self.inertia & (len(self.previous_curve) == 0) 
+
+        rawData = self.raw_data_auct if parMsiActive else self.raw_data 
+
+        self.logger.debug(f'rawData: {rawData.shape[0]}, self.raw_data: {self.raw_data.shape[0]}, self.raw_data_auct: {self.raw_data_auct.shape[0]}, parMsiActive: {parMsiActive}')
+        
+        rawData.loc[:,'bond_maturity_type'] = pd.cut(rawData.span, bins=self.thresholds)
             
-        self.data_different_dates[settle_date] = creating_sample(settle_date, 
-                                                                 self.raw_data, 
-                                                                 min_n_deal=self.min_n_deal, 
-                                                                 time_window=CONFIG.TIME_WINDOW, 
-                                                                 thresholds = self.thresholds)
+        #sample = creating_sample(settle_date, rawData, min_n_deal=self.min_n_deal, time_window=CONFIG.TIME_WINDOW, thresholds = self.thresholds)
+        
+        if self.need_trace:              
+            zsRawDataFileName = f'{idDatePrefix}_zscore_raw_data_parmsi.xlsx' if parMsiActive else f'{idDatePrefix}_zscore_raw_data.xlsx'
+            rawData.to_excel(os.path.join(self.trace_path, zsRawDataFileName), sheet_name='raw_data', engine='xlsxwriter')
         
         ind_out=[]
-        for b in self.data_different_dates[settle_date].bond_maturity_type.unique().sort_values():
-            bsample = self.data_different_dates[settle_date].loc[self.data_different_dates[settle_date].loc[:,'bond_maturity_type']==b]
-            zscores = self.is_outlier(bsample.loc[:, ['ytm', 'span']])
-            self.logger.debug(f'Z-score: {zscores[0]}, {zscores[1]}, {bsample.loc[:,"ytm"]}')
-            self.data_different_dates[settle_date].loc[self.data_different_dates[settle_date].loc[:,'bond_maturity_type']==b, 'std']=zscores[2]
-            bind_out = bsample.loc[(zscores[1])&(bsample.loc[:,'deal_type']!=1)].index.values
-
+        for b in rawData.bond_maturity_type.unique().sort_values():
+            xlsxPrefix = '' 
             if self.need_trace:              
                 bn = f'{b}'.replace('(', '').replace(')', '').replace('[', '').replace(']', '').replace(' ', '').replace('.', '_').replace(',', '_')
                 self.logger.debug(f'bond_maturity_type name: {b} -> {bn}')
-                zscores[0].to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_{bn}_zscore_0.xlsx'), sheet_name='zscores0', engine='xlsxwriter')
-                zscores[1].to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_{bn}_zscore_1.xlsx'), sheet_name='zscores1', engine='xlsxwriter')
+                xlsxPrefix = f'{idDatePrefix}_{bn}'
             
-            if bind_out.size!= 0:
-                ind_out.append(bind_out)
+            bsample = rawData.loc[rawData.loc[:,'bond_maturity_type']==b]
+            bsampleYtmSpan = bsample.loc[:, ['ytm', 'span']]
+
+            if self.need_trace:              
+                bsample.to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_bsample.xlsx'), sheet_name='bsample', engine='xlsxwriter')
+                bsampleYtmSpan.to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_bsample_ytm_span.xlsx'), sheet_name='bsample_ytm_span', engine='xlsxwriter')
+            
+            zscores = self.is_outlier(bsampleYtmSpan)
+            
+            # self.logger.debug(f'Z-score: {zscores[0]}, {zscores[1]}, {bsample.loc[:,"ytm"]}')
+            
+            rawData.loc[rawData.loc[:,'bond_maturity_type']==b, 'std']=zscores[2]
+            
+            bind_out = bsample.loc[(zscores[1]) & (bsample.loc[:,'deal_type'] != 1)]
+            bind_out_values = bind_out.index.values
+
+            if self.need_trace:              
+                zscores[0].to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_zscore_0.xlsx'), sheet_name='zscores0', engine='xlsxwriter')
+                zscores[1].to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_zscore_1.xlsx'), sheet_name='zscores1', engine='xlsxwriter')
+
+                if not bind_out.empty:              
+                    bind_out.to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_bind_out.xlsx'), sheet_name='bind_out_values-', engine='xlsxwriter')
+            
+            if bind_out_values.size != 0:
+                ind_out.append(bind_out_values)
                 
+        # Преобразует [[a,b],[c,d],[e,f]] в [a,b,c,d,e,f]         
         ind_out = [item for sublist in ind_out for item in sublist]
         
-        self.logger.debug(f'DF shape: {self.data_different_dates[settle_date].shape} - original')
+        self.logger.debug(f'DF shape: {rawData.shape} - original')
         self.logger.debug(f'Deals dropped: {ind_out}')
-        self.dropped_deals[settle_date] = self.data_different_dates[settle_date].loc[ind_out,:]
-        self.data_different_dates[settle_date].drop(ind_out, inplace = True)
-        self.logger.debug(f'DF shape: {self.data_different_dates[settle_date].shape} - adjusted')
+        self.dropped_deals[settle_date] = rawData.loc[ind_out,:]
+        rawData.drop(ind_out, inplace = True)
+        self.logger.debug(f'DF shape: {rawData.shape} - adjusted')
+        
+        sample = creating_sample(settle_date, rawData, min_n_deal=self.min_n_deal, time_window=CONFIG.TIME_WINDOW, thresholds = self.thresholds)
+
+        if self.need_trace:              
+            zsSampeFileName = f'{idDatePrefix}_zscore_sample_parmsi.xlsx' if parMsiActive else f'{idDatePrefix}_zscore_sample.xlsx'
+            sample.to_excel(os.path.join(self.trace_path, zsSampeFileName), sheet_name='sample', engine='xlsxwriter')
+        
+        self.data_different_dates[settle_date] = sample 
 
         self.logger.debug(f'Generating sample for {settle_date:%d.%m.%Y} - Done!')
         
         if self.need_trace and not self.dropped_deals[settle_date].empty:              
-            self.dropped_deals[settle_date].to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_deals_dropped_by_zscore.xlsx'), sheet_name='dropped_deals', engine='xlsxwriter')
+            self.dropped_deals[settle_date].to_excel(os.path.join(self.trace_path, f'{idDatePrefix}_deals_dropped_by_zscore.xlsx'), sheet_name='dropped_deals', engine='xlsxwriter')
     
     def new_dates(self, new_end_date = None):
         
@@ -297,91 +359,97 @@ class grid_search():
             
     
     
-    def dump(self):
-        
-        best_betas = {}
-        for date in self.settle_dates:
-            idx = self.loss_res[date].loc[:, 'loss'].idxmin()
-            best_betas[date] = self.loss_res[pd.to_datetime(date)].loc[idx, ['b0','b1','b2','teta']].values
-        best_betas = pd.DataFrame.from_dict(best_betas, orient='index', columns = ['b0','b1','b2','teta'])
-        best_betas.sort_index(inplace=True)
-        
-        attributes = ['several_dates', 
-                      'thresholds', 
-                      'start_date', 
-                      'end_date', 
-                      'freq', 
-                      'num_workers', 
-                      'inertia', 
-                      'settle_dates',
-                      'loss_res']
-        
-        params = {k:self.__getattribute__(k) for k in attributes}
-                  
-       
-        with h5py.File('grid_data.hdf5', 'w') as f:
-            g = f.create_group('curveData')
-            betas = g.create_dataset('betas', data = [pickle.dumps(best_betas)])
-            samples = g.create_dataset('samples', data = [pickle.dumps(self.data_different_dates)])
-            dropped_deals = g.create_dataset('dropped', data = [pickle.dumps(self.dropped_deals)])
-            raw_data = g.create_dataset('raw_data', data = [pickle.dumps(self.raw_data)])
-            params = g.create_dataset('params', data = [pickle.dumps(params)])
-            
-            meta = {'save date': f'{pd.datetime.now():%Y-%m-%d %H:%M:%S}',
-                    'frequency': self.freq,
-                    'start_date': self.start_date,
-                    'end_date':self.end_date,
-                   
-                    }
-            g.attrs.update(meta)
-        
-            self.logger.debug('saving data:')
-            self.logger.debug('-'*10)
-            for m in g.attrs.keys():
-                self.logger.debug(f'{m}: {g.attrs[m]}')
-            self.logger.debug('-'*10)
+#    def dump(self):
+#        
+#        best_betas = {}
+#        for date in self.settle_dates:
+#            idx = self.loss_res[date].loc[:, 'loss'].idxmin()
+#            best_betas[date] = self.loss_res[pd.to_datetime(date)].loc[idx, ['b0','b1','b2','teta']].values
+#        best_betas = pd.DataFrame.from_dict(best_betas, orient='index', columns = ['b0','b1','b2','teta'])
+#        best_betas.sort_index(inplace=True)
+#        
+#        attributes = ['several_dates', 
+#                      'thresholds', 
+#                      'start_date', 
+#                      'end_date', 
+#                      'freq', 
+#                      'num_workers', 
+#                      'inertia', 
+#                      'settle_dates',
+#                      'loss_res']
+#        
+#        params = {k:self.__getattribute__(k) for k in attributes}
+#                  
+#       
+#        with h5py.File('grid_data.hdf5', 'w') as f:
+#            g = f.create_group('curveData')
+#            betas = g.create_dataset('betas', data = [pickle.dumps(best_betas)])
+#            samples = g.create_dataset('samples', data = [pickle.dumps(self.data_different_dates)])
+#            dropped_deals = g.create_dataset('dropped', data = [pickle.dumps(self.dropped_deals)])
+#            raw_data = g.create_dataset('raw_data', data = [pickle.dumps(self.raw_data)])
+#            params = g.create_dataset('params', data = [pickle.dumps(params)])
+#            
+#            meta = {'save date': f'{pd.datetime.now():%Y-%m-%d %H:%M:%S}',
+#                    'frequency': self.freq,
+#                    'start_date': self.start_date,
+#                    'end_date':self.end_date,
+#                   
+#                    }
+#            g.attrs.update(meta)
+#        
+#            self.logger.debug('saving data:')
+#            self.logger.debug('-'*10)
+#            for m in g.attrs.keys():
+#                self.logger.debug(f'{m}: {g.attrs[m]}')
+#            self.logger.debug('-'*10)
                 
-    def load(self):
-        
-        with h5py.File('grid_data.hdf5', 'r') as f:
-            g = f['curveData']
-            self.logger.debug('loading stored data:')
-            self.logger.debug('-'*10)
-            for m in g.attrs.keys():
-                self.logger.debug(f'{m}: {g.attrs[m]}')
-            self.logger.debug('-'*10, '\n')
-            best_betas = pickle.loads(g['betas'][()])
-            params = pickle.loads(g['params'][()])
-            samples = pickle.loads(g['samples'][()])
-            dropped = pickle.loads(g['dropped'][()])
-            
-            
-        self.previous_curve = best_betas.iloc[-1].copy()
-        self.beta_init = best_betas.iloc[-1].copy()
-        self.data_different_dates = samples
-        self.dropped_deals = dropped
-        
-        # self.logger.debug('Following parameters were used:') #uncomment for diagnostics
-        # self.logger.debug('-'*10) #uncomment for diagnostics
-        for k,v in params.items():
-            # self.logger.debug(f'{k}: {v}') #uncomment for diagnostics
-            self.__dict__[k] = v
+#    def load(self):
+#        
+#        with h5py.File('grid_data.hdf5', 'r') as f:
+#            g = f['curveData']
+#            self.logger.debug('loading stored data:')
+#            self.logger.debug('-'*10)
+#            for m in g.attrs.keys():
+#                self.logger.debug(f'{m}: {g.attrs[m]}')
+#            self.logger.debug('-'*10, '\n')
+#            best_betas = pickle.loads(g['betas'][()])
+#            params = pickle.loads(g['params'][()])
+#            samples = pickle.loads(g['samples'][()])
+#            dropped = pickle.loads(g['dropped'][()])
+#            
+#            
+#        self.previous_curve = best_betas.iloc[-1].copy()
+#        self.beta_init = best_betas.iloc[-1].copy()
+#        self.data_different_dates = samples
+#        self.dropped_deals = dropped
+#        
+#        # self.logger.debug('Following parameters were used:') #uncomment for diagnostics
+#        # self.logger.debug('-'*10) #uncomment for diagnostics
+#        for k,v in params.items():
+#            # self.logger.debug(f'{k}: {v}') #uncomment for diagnostics
+#            self.__dict__[k] = v
     
     #creation of loss frame grid
     def loss_grid(self, **kwargs):
-        self.logger.debug('loss_grid')
+        self.logger.debug(f'loss_grid: num_workers = {self.num_workers}')
 
-        #if num_worker == 1 dask will not be used at all to avoid overhead expenses
-        if self.num_workers == 1:
-            self.logger.debug('start: num_workers == 1')
-
-            res_ = []
-            for i, tau in enumerate(self.tau_grid):
-                res = self.minimization_del(tau, self.Loss, 
-                          self.loss_args, self.beta_init, **kwargs)
-                res_.append(res)
-        elif self.several_dates:
+        #Ветка для работы без dask больше не поддерживается.
+        # TODO Удалить код
+        #if self.num_workers == 1:
+        #    self.logger.debug('start: num_workers == 1')
+        #
+        #    res_ = []
+        #    for i, tau in enumerate(self.tau_grid):
+        #        res = self.minimization_del(tau, self.Loss, 
+        #                  self.loss_args, self.beta_init, **kwargs)
+        #        res_.append(res)
+        #elif self.several_dates:
+        if self.several_dates:
             self.logger.debug('start: several_dates')
+
+            # Поддерживается только ветка "inertia" 
+            # Временно выдаем Exception 
+            raise Exception('Case with several_dates not supported')
 
             loss_args = self.loss_args
             
@@ -421,13 +489,13 @@ class grid_search():
             self.logger.info(f'Optimization for {date:%d.%m.%Y} - Done!')
         
         elif self.inertia:
-            self.logger.debug('start: inertia')
+            self.logger.debug(f'start: inertia, num_workers = {self.num_workers}')
 
-            loss_args = self.loss_args
-            
             if self.update_date != None:
+                self.logger.debug('iter_dates = update_date')
                 self.iter_dates = self.update_date
             else:
+                self.logger.debug('iter_dates = settle_dates')
                 self.iter_dates = self.settle_dates
             
             i = 0
@@ -436,6 +504,9 @@ class grid_search():
                 i = i + 1
                 
                 self.gen_one_date(settle_date)
+
+                parMsiActive = self.parMsi & (len(self.previous_curve) == 0) 
+                loss_args = self.loss_args_auct if parMsiActive else self.loss_args
                 
                 l_args = [arg for arg in loss_args]
     
@@ -449,7 +520,7 @@ class grid_search():
                     binit = pd.DataFrame(self.beta_init)
                     binit.to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_beta_init.xlsx'), sheet_name='beta_init', engine='xlsxwriter')
                     self.data_different_dates[settle_date].to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_settle_date_deals.xlsx'), sheet_name='deals', engine='xlsxwriter')
-                    self.raw_data.to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_raw_data.xlsx'), sheet_name='raw_data', engine='xlsxwriter')
+                    #self.raw_data.to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_raw_data.xlsx'), sheet_name='raw_data', engine='xlsxwriter')
 
                 if i == lastind:
                     self.logger.info(f'store deals to xlsx for {settle_date:%Y%m%d}')
@@ -460,7 +531,7 @@ class grid_search():
                 values = [delayed(self.minimization_del)(tau, self.Loss, 
                           l_args, self.beta_init, constraints = constr, **kwargs) for tau in self.tau_grid]
                 
-                self.logger.info('start minimizing')
+                self.logger.info(f'start minimizing: num_workers = {self.num_workers}')
                 res_ = compute(*values, scheduler='processes', num_workers=self.num_workers)
                 
                 #putting betas and Loss value in Pandas DataFrame
@@ -503,18 +574,20 @@ class grid_search():
     
     #actual fitting of data
     def fit(self, return_frame=False, **kwargs):
-        if use_one_worker:
-            self.logger.warning('Multiprocessing is not enabled as dask is not installed. Install dask to enbale multiprocessing.')
-            self.num_workers = 1
-        else:
-            self.num_workers = self.num_workers
+        if no_dask:
+            raise Exception('Multiprocessing is not enabled as dask is not installed. Install dask to enbale multiprocessing')
+
+        self.logger.debug(f'fit: num_workers = {self.num_workers}')
+            
         self.loss_frame = self.loss_grid(**kwargs)
-        #loss_frame = self.filter_frame(loss_frame)
+        
         self.beta_best = self.loss_frame.loc[self.loss_frame['loss'].argmin(), :].values[:-1]
+        
         best_betas = {}
         for date in self.settle_dates:
             idx = self.loss_res[date].loc[:, 'loss'].idxmin()
             best_betas[date] = self.loss_res[pd.to_datetime(date)].loc[idx, ['b0','b1','b2','teta']].values
+            
         self.best_betas = best_betas
 
         if return_frame:
