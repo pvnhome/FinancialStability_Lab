@@ -15,9 +15,9 @@ from ns_func import Z, par_yield
 try:
     import dask.multiprocessing
     from dask import compute, delayed
-    no_dask = False
+    use_one_worker = False
 except ImportError as e:
-    no_dask = True
+    use_one_worker = True
 
 ##grid search over values of tau
 class grid_search():
@@ -250,67 +250,44 @@ class grid_search():
         '''   
         self.logger.debug(f'gen_one_date: min_n_deal={self.min_n_deal}')
 
-        idDatePrefix = ''
-        if self.need_trace:              
-            idDatePrefix = f'{self.jobid}_{settle_date:%Y%m%d}'
-
         if not hasattr(self, 'data_different_dates'):
             self.data_different_dates = {}
             
-        sample = creating_sample(settle_date, self.raw_data, min_n_deal=self.min_n_deal, time_window=CONFIG.TIME_WINDOW, thresholds = self.thresholds)
-        
-        self.data_different_dates[settle_date] = sample 
-
-        if self.need_trace:              
-            sample.to_excel(os.path.join(self.trace_path, f'{idDatePrefix}_zscore_sample.xlsx'), sheet_name='zscore_sample', engine='xlsxwriter')
+        self.data_different_dates[settle_date] = creating_sample(settle_date, 
+                                                                 self.raw_data, 
+                                                                 min_n_deal=self.min_n_deal, 
+                                                                 time_window=CONFIG.TIME_WINDOW, 
+                                                                 thresholds = self.thresholds)
         
         ind_out=[]
-        for b in sample.bond_maturity_type.unique().sort_values():
-            xlsxPrefix = '' 
+        for b in self.data_different_dates[settle_date].bond_maturity_type.unique().sort_values():
+            bsample = self.data_different_dates[settle_date].loc[self.data_different_dates[settle_date].loc[:,'bond_maturity_type']==b]
+            zscores = self.is_outlier(bsample.loc[:, ['ytm', 'span']])
+            self.logger.debug(f'Z-score: {zscores[0]}, {zscores[1]}, {bsample.loc[:,"ytm"]}')
+            self.data_different_dates[settle_date].loc[self.data_different_dates[settle_date].loc[:,'bond_maturity_type']==b, 'std']=zscores[2]
+            bind_out = bsample.loc[(zscores[1])&(bsample.loc[:,'deal_type']!=1)].index.values
+
             if self.need_trace:              
                 bn = f'{b}'.replace('(', '').replace(')', '').replace('[', '').replace(']', '').replace(' ', '').replace('.', '_').replace(',', '_')
                 self.logger.debug(f'bond_maturity_type name: {b} -> {bn}')
-                xlsxPrefix = f'{idDatePrefix}_{bn}'
+                zscores[0].to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_{bn}_zscore_0.xlsx'), sheet_name='zscores0', engine='xlsxwriter')
+                zscores[1].to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_{bn}_zscore_1.xlsx'), sheet_name='zscores1', engine='xlsxwriter')
             
-            bsample = sample.loc[sample.loc[:,'bond_maturity_type']==b]
-            bsampleYtmSpan = bsample.loc[:, ['ytm', 'span']]
-
-            if self.need_trace:              
-                bsample.to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_bsample.xlsx'), sheet_name='bsample', engine='xlsxwriter')
-                bsampleYtmSpan.to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_bsample_ytm_span.xlsx'), sheet_name='bsample_ytm_span', engine='xlsxwriter')
-            
-            zscores = self.is_outlier(bsampleYtmSpan)
-            
-            # self.logger.debug(f'Z-score: {zscores[0]}, {zscores[1]}, {bsample.loc[:,"ytm"]}')
-            
-            sample.loc[sample.loc[:,'bond_maturity_type']==b, 'std']=zscores[2]
-            
-            bind_out = bsample.loc[(zscores[1]) & (bsample.loc[:,'deal_type'] != 1)]
-            bind_out_values = bind_out.index.values
-
-            if self.need_trace:              
-                zscores[0].to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_zscore_0.xlsx'), sheet_name='zscores0', engine='xlsxwriter')
-                zscores[1].to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_zscore_1.xlsx'), sheet_name='zscores1', engine='xlsxwriter')
-
-                if not bind_out.empty:              
-                    bind_out.to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_bind_out.xlsx'), sheet_name='bind_out_values-', engine='xlsxwriter')
-            
-            if bind_out_values.size != 0:
-                ind_out.append(bind_out_values)
+            if bind_out.size!= 0:
+                ind_out.append(bind_out)
                 
-        # Преобразует [[a,b],[c,d],[e,f]] в [a,b,c,d,e,f]         
         ind_out = [item for sublist in ind_out for item in sublist]
         
-        self.logger.debug(f'DF shape: {sample.shape} - original')
+        self.logger.debug(f'DF shape: {self.data_different_dates[settle_date].shape} - original')
         self.logger.debug(f'Deals dropped: {ind_out}')
-        self.dropped_deals[settle_date] = sample.loc[ind_out,:]
-        sample.drop(ind_out, inplace = True)
-        self.logger.debug(f'DF shape: {sample.shape} - adjusted')
+        self.dropped_deals[settle_date] = self.data_different_dates[settle_date].loc[ind_out,:]
+        self.data_different_dates[settle_date].drop(ind_out, inplace = True)
+        self.logger.debug(f'DF shape: {self.data_different_dates[settle_date].shape} - adjusted')
 
         self.logger.debug(f'Generating sample for {settle_date:%d.%m.%Y} - Done!')
         
         if self.need_trace and not self.dropped_deals[settle_date].empty:              
-            self.dropped_deals[settle_date].to_excel(os.path.join(self.trace_path, f'{idDatePrefix}_deals_dropped_by_zscore.xlsx'), sheet_name='dropped_deals', engine='xlsxwriter')
+            self.dropped_deals[settle_date].to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_deals_dropped_by_zscore.xlsx'), sheet_name='dropped_deals', engine='xlsxwriter')
     
     def new_dates(self, new_end_date = None):
         
@@ -392,25 +369,19 @@ class grid_search():
     
     #creation of loss frame grid
     def loss_grid(self, **kwargs):
-        self.logger.debug(f'loss_grid: num_workers = {self.num_workers}')
+        self.logger.debug('loss_grid')
 
-        #Ветка для работы без dask больше не поддерживается.
-        # TODO Удалить код
-        #if self.num_workers == 1:
-        #    self.logger.debug('start: num_workers == 1')
-        #
-        #    res_ = []
-        #    for i, tau in enumerate(self.tau_grid):
-        #        res = self.minimization_del(tau, self.Loss, 
-        #                  self.loss_args, self.beta_init, **kwargs)
-        #        res_.append(res)
-        #elif self.several_dates:
-        if self.several_dates:
+        #if num_worker == 1 dask will not be used at all to avoid overhead expenses
+        if self.num_workers == 1:
+            self.logger.debug('start: num_workers == 1')
+
+            res_ = []
+            for i, tau in enumerate(self.tau_grid):
+                res = self.minimization_del(tau, self.Loss, 
+                          self.loss_args, self.beta_init, **kwargs)
+                res_.append(res)
+        elif self.several_dates:
             self.logger.debug('start: several_dates')
-
-            # Поддерживается только ветка "inertia" 
-            # Временно выдаем Exception 
-            raise Exception('Case with several_dates not supported')
 
             loss_args = self.loss_args
             
@@ -450,15 +421,13 @@ class grid_search():
             self.logger.info(f'Optimization for {date:%d.%m.%Y} - Done!')
         
         elif self.inertia:
-            self.logger.debug(f'start: inertia, num_workers = {self.num_workers}')
+            self.logger.debug('start: inertia')
 
             loss_args = self.loss_args
             
             if self.update_date != None:
-                self.logger.debug('iter_dates = update_date')
                 self.iter_dates = self.update_date
             else:
-                self.logger.debug('iter_dates = settle_dates')
                 self.iter_dates = self.settle_dates
             
             i = 0
@@ -491,7 +460,7 @@ class grid_search():
                 values = [delayed(self.minimization_del)(tau, self.Loss, 
                           l_args, self.beta_init, constraints = constr, **kwargs) for tau in self.tau_grid]
                 
-                self.logger.info(f'start minimizing: num_workers = {self.num_workers}')
+                self.logger.info('start minimizing')
                 res_ = compute(*values, scheduler='processes', num_workers=self.num_workers)
                 
                 #putting betas and Loss value in Pandas DataFrame
@@ -534,20 +503,18 @@ class grid_search():
     
     #actual fitting of data
     def fit(self, return_frame=False, **kwargs):
-        if no_dask:
-            raise Exception('Multiprocessing is not enabled as dask is not installed. Install dask to enbale multiprocessing')
-
-        self.logger.debug(f'fit: num_workers = {self.num_workers}')
-            
+        if use_one_worker:
+            self.logger.warning('Multiprocessing is not enabled as dask is not installed. Install dask to enbale multiprocessing.')
+            self.num_workers = 1
+        else:
+            self.num_workers = self.num_workers
         self.loss_frame = self.loss_grid(**kwargs)
-        
+        #loss_frame = self.filter_frame(loss_frame)
         self.beta_best = self.loss_frame.loc[self.loss_frame['loss'].argmin(), :].values[:-1]
-        
         best_betas = {}
         for date in self.settle_dates:
             idx = self.loss_res[date].loc[:, 'loss'].idxmin()
             best_betas[date] = self.loss_res[pd.to_datetime(date)].loc[idx, ['b0','b1','b2','teta']].values
-            
         self.best_betas = best_betas
 
         if return_frame:
