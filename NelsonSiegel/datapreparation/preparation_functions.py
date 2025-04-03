@@ -1,10 +1,15 @@
 import os, sys
 import logging
+import numpy as np
 import pandas as pd
 from .bond import coupon_rate_modifier
+from _ast import If
 
 #### creating new essential features based on input data
 def creating_new_columns(df, mask_face_value, mask_base_time):
+    # Избавляемся от времени в записи о сделке.
+    df['deal_date'] = df['deal_date'].dt.floor('d')
+    
     #Extracted symbol type of bond
     df['bond_symb'] = df.symbol.str.extract(r'([A-Z]+)', expand=False)
     #defining Face Value of bond
@@ -40,7 +45,7 @@ def cleaning_from_errors(df):
 #### Defining filling function which will replace wrong values 
 def filling_values(df, discount_bonds=['NTK', 'MKM']):
     #recoding type of deal in integers
-    df['deal_type'] = df.deal_type.map({'1': 1, '2': 2, 'SR': 3})
+    #df['deal_type'] = df.deal_type.map({'1': 1, '2': 2, 'SR': 3})
     print('beggining of filling data', df.shape)
     #if clean price equal coupon rate than it is errors in dataset
     #so clean price is taken as 100 in this case
@@ -122,7 +127,7 @@ def groupping_transactions(df):
     logger = logging.getLogger(__name__)
     logger.debug('groupping_transactions')
     
-    clean_data = df.copy()
+    #clean_data = df.copy()
     logger.debug(df.columns)
     ind_col = ['deal_date', 'symbol', 'deal_price']
 
@@ -147,13 +152,20 @@ def groupping_transactions(df):
         new = grouped.apply(wavg).reset_index()
         new.set_index(ntk_ind, inplace = True)
         
+        #ntk_df.to_excel('/home/victor/work/java/extended_props/logs/gzb_curve/v/ntk_df.xlsx', sheet_name='processing_data', engine='xlsxwriter')
+        #new.to_excel('/home/victor/work/java/extended_props/logs/gzb_curve/v/new.xlsx', sheet_name='processing_data', engine='xlsxwriter')
+        
         df.set_index(ntk_ind, inplace = True)
         df.update(new)
         df.reset_index(inplace = True)
+
+        #df.to_excel('/home/victor/work/java/extended_props/logs/gzb_curve/v/df_by_new.xlsx', sheet_name='processing_data', engine='xlsxwriter')
         
-        clean_data.set_index(ntk_ind, inplace = True)
-        clean_data.update(df)
-        clean_data.reset_index(inplace = True)
+        #clean_data.set_index(ntk_ind, inplace = True)
+        #clean_data.update(df)
+        #clean_data.reset_index(inplace = True)
+
+        #df.to_excel('/home/victor/work/java/extended_props/logs/gzb_curve/v/clean_data_by_new.xlsx', sheet_name='processing_data', engine='xlsxwriter')
         
     aggregated_by_median = df.groupby(ind_col)[['face_value', 'annual_freq', 'base_time', 'span']].median()
     logger.debug(f'median {aggregated_by_median.shape}')
@@ -171,6 +183,9 @@ def groupping_transactions(df):
     #adding span and changing coupon rate variable
     clean_data = clean_data.reset_index().set_index(ind_col)
     logger.debug(clean_data.shape)
+
+    clean_data.to_excel('/home/victor/work/java/extended_props/logs/gzb_curve/v/groupping_transactions_old.xlsx', sheet_name='old', engine='xlsxwriter')
+    
     return clean_data
 
 ####

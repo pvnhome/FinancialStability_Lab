@@ -39,6 +39,9 @@ def new_ytm(df, coupons_cf, streak_data):
     ##estimating new ytm
     df['ytm'] = np.array([loss_yield(df.iloc[i], coupons_cf, streak_data) 
                                           for i in range(df.shape[0])]) 
+
+    df['ytm_fixed'] = df.apply(lambda row: row.ytm_kase if row.ytm_kase>0.0 else row.ytm, axis=1)
+    
     return df
 
 def filtering_ytm(df, min_yield=None, max_yield=None):

@@ -33,6 +33,7 @@ MAX_YIELD = None
 MIN_YIELD = None
 USE_OTC = True
 NOTES_IN_OTC = True
+# Нац.банк порекомендовал изменить этот параметр на 8
 MATURITY_FILTER = 8.0 #in days
 DEAL_MARKET = None
 USE_N_WIND = True

@@ -10,6 +10,7 @@ from scipy.optimize import minimize
 from datapreparation.adaptive_sampling import creating_sample
 import CONFIG
 from ns_func import Z, par_yield
+from payments_calendar import creating_coupons
 
 #checking if dask is installed
 try:
@@ -187,6 +188,38 @@ class grid_search():
         z_score = 0.6745 * diff / sstd
 
         return (z_score, (z_score > self.outlierThresh), sstd)
+
+    def simple_outlier(self, points):
+        '''
+        Returns a boolean array with True if points are outliers and False
+        otherwise.
+    
+        Parameters:
+        -----------
+            points : An numobservations by numdimensions array of observations
+    
+        Returns:
+        --------
+            mask : A numobservations-length boolean array.
+        '''
+
+        self.logger.debug('simple_outlier: threshold -0.01 and +0.01')
+
+#        points.loc[:,'par'] = par_yield(points.loc[:,'span'].values / 365, self.previous_curve)
+#        points.loc[:,'par_min'] = points.loc[:,'par'].values - 0.01
+#        points.loc[:,'par_max'] = points.loc[:,'par'].values + 0.01
+#        points.loc[:,'good'] = points.loc[:,'ytm'].values > points.loc[:,'par_min'].values and points.loc[:,'ytm'].values < points.loc[:,'par_max'].values
+        
+        #points['par'] = points.apply(lambda row: par_yield(row.span / 365, self.previous_curve), axis=1)
+        points['par'] = points.apply(lambda row: np.exp(par_yield(row.span / 365, self.previous_curve)) - 1, axis=1)
+#        points['par_min'] = points.apply(lambda row: row.par - 0.01, axis=1)
+#        points['par_max'] = points.apply(lambda row: row.par + 0.01, axis=1)
+        points['par_min'] = points.apply(lambda row: row.par - 0.005, axis=1)
+        points['par_max'] = points.apply(lambda row: row.par + 0.05, axis=1)
+        #points['par_ytm'] = points.apply(lambda row: row.ytm_kase if row.ytm_kase>0.0 else row.ytm, axis=1)
+        points['bad_deals'] = points.apply(lambda row: row.ytm_fixed<row.par_min or row.ytm_fixed>row.par_max, axis=1)
+
+        #return points
     
     #filtered data generation
     def gen_subsets(self,):
@@ -285,71 +318,140 @@ class grid_search():
 
         rawData = self.raw_data_auct if parMsiActive else self.raw_data 
 
-        self.logger.debug(f'rawData: {rawData.shape[0]}, self.raw_data: {self.raw_data.shape[0]}, self.raw_data_auct: {self.raw_data_auct.shape[0]}, parMsiActive: {parMsiActive}')
+        self.logger.debug(f'before drop outliers: rawData: {rawData.shape[0]}, self.raw_data: {self.raw_data.shape[0]}, self.raw_data_auct: {self.raw_data_auct.shape[0]}, parMsiActive: {parMsiActive}')
         
-        rawData.loc[:,'bond_maturity_type'] = pd.cut(rawData.span, bins=self.thresholds)
+        #rawData.loc[:,'bond_maturity_type'] = pd.cut(rawData.span, bins=self.thresholds)
             
         #sample = creating_sample(settle_date, rawData, min_n_deal=self.min_n_deal, time_window=CONFIG.TIME_WINDOW, thresholds = self.thresholds)
         
         if self.need_trace:              
             zsRawDataFileName = f'{idDatePrefix}_zscore_raw_data_parmsi.xlsx' if parMsiActive else f'{idDatePrefix}_zscore_raw_data.xlsx'
             rawData.to_excel(os.path.join(self.trace_path, zsRawDataFileName), sheet_name='raw_data', engine='xlsxwriter')
+            
+        #ind_out=[]
+        clearedData = None 
         
-        ind_out=[]
-        for b in rawData.bond_maturity_type.unique().sort_values():
-            xlsxPrefix = '' 
-            if self.need_trace:              
-                bn = f'{b}'.replace('(', '').replace(')', '').replace('[', '').replace(']', '').replace(' ', '').replace('.', '_').replace(',', '_')
-                self.logger.debug(f'bond_maturity_type name: {b} -> {bn}')
-                xlsxPrefix = f'{idDatePrefix}_{bn}'
-            
-            bsample = rawData.loc[rawData.loc[:,'bond_maturity_type']==b]
-            bsampleYtmSpan = bsample.loc[:, ['ytm', 'span']]
+        if not parMsiActive:
+            # Чистим массив по Z-Score только если мы не в режиме parMsi и это не прогрев.     
+            self.logger.debug(f'try to drop outlies')
+
+            #bsampleYtmSpan = rawData.loc[:, ['ytm', 'span']]
+
+            #if self.need_trace:              
+            #    bsampleYtmSpan.to_excel(os.path.join(self.trace_path, f'{idDatePrefix}_bsample_ytm_span.xlsx'), sheet_name='bsample_ytm_span', engine='xlsxwriter')
+
+            #zscores = self.simple_outlier(bsampleYtmSpan)
+            self.simple_outlier(rawData)
 
             if self.need_trace:              
-                bsample.to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_bsample.xlsx'), sheet_name='bsample', engine='xlsxwriter')
-                bsampleYtmSpan.to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_bsample_ytm_span.xlsx'), sheet_name='bsample_ytm_span', engine='xlsxwriter')
-            
-            zscores = self.is_outlier(bsampleYtmSpan)
-            
-            # self.logger.debug(f'Z-score: {zscores[0]}, {zscores[1]}, {bsample.loc[:,"ytm"]}')
-            
-            rawData.loc[rawData.loc[:,'bond_maturity_type']==b, 'std']=zscores[2]
-            
-            bind_out = bsample.loc[(zscores[1]) & (bsample.loc[:,'deal_type'] != 1)]
-            bind_out_values = bind_out.index.values
+                rawData.to_excel(os.path.join(self.trace_path, f'{idDatePrefix}_par.xlsx'), sheet_name='par', engine='xlsxwriter')
 
-            if self.need_trace:              
-                zscores[0].to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_zscore_0.xlsx'), sheet_name='zscores0', engine='xlsxwriter')
-                zscores[1].to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_zscore_1.xlsx'), sheet_name='zscores1', engine='xlsxwriter')
-
-                if not bind_out.empty:              
-                    bind_out.to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_bind_out.xlsx'), sheet_name='bind_out_values-', engine='xlsxwriter')
-            
-            if bind_out_values.size != 0:
-                ind_out.append(bind_out_values)
+            #bind_out = rawData.loc[(zscores.bad_deals) & (rawData.loc[:,'deal_type'] != 1)]
+            #ind_out = bind_out.index.values
+        
+#            for b in rawData.bond_maturity_type.unique().sort_values():
+#                xlsxPrefix = '' 
+#                if self.need_trace:              
+#                    bn = f'{b}'.replace('(', '').replace(')', '').replace('[', '').replace(']', '').replace(' ', '').replace('.', '_').replace(',', '_')
+#                    self.logger.debug(f'bond_maturity_type name: {b} -> {bn}')
+#                    xlsxPrefix = f'{idDatePrefix}_{bn}'
+#                
+#                bsample = rawData.loc[rawData.loc[:,'bond_maturity_type']==b]
+#                bsampleYtmSpan = bsample.loc[:, ['ytm', 'span']]
+#    
+#                if self.need_trace:              
+#                    bsample.to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_bsample.xlsx'), sheet_name='bsample', engine='xlsxwriter')
+#                    bsampleYtmSpan.to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_bsample_ytm_span.xlsx'), sheet_name='bsample_ytm_span', engine='xlsxwriter')
+#                
+#                zscores = self.is_outlier(bsampleYtmSpan)
+#                
+#                # self.logger.debug(f'Z-score: {zscores[0]}, {zscores[1]}, {bsample.loc[:,"ytm"]}')
+#                
+#                rawData.loc[rawData.loc[:,'bond_maturity_type']==b, 'std']=zscores[2]
+#                
+#                bind_out = bsample.loc[(zscores[1]) & (bsample.loc[:,'deal_type'] != 1)]
+#                bind_out_values = bind_out.index.values
+#    
+#                if self.need_trace:              
+#                    zscores[0].to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_zscore_0.xlsx'), sheet_name='zscores0', engine='xlsxwriter')
+#                    zscores[1].to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_zscore_1.xlsx'), sheet_name='zscores1', engine='xlsxwriter')
+#    
+#                    if not bind_out.empty:              
+#                        bind_out.to_excel(os.path.join(self.trace_path, f'{xlsxPrefix}_bind_out.xlsx'), sheet_name='bind_out_values-', engine='xlsxwriter')
+#                
+#                if bind_out_values.size != 0:
+#                    ind_out.append(bind_out_values)
                 
-        # Преобразует [[a,b],[c,d],[e,f]] в [a,b,c,d,e,f]         
-        ind_out = [item for sublist in ind_out for item in sublist]
+            # Преобразует [[a,b],[c,d],[e,f]] в [a,b,c,d,e,f]         
+            # ind_out = [item for sublist in ind_out for item in sublist]
+            
+            self.logger.debug(f'DF shape: {rawData.shape} - original')
+            #self.logger.debug(f'Deals dropped: {ind_out}')
+            #self.dropped_deals[settle_date] = rawData.loc[ind_out,:]
+            
+            group_ind_cols = ['deal_date', 'symbol', 'deal_type', 'deal_price']
+ 
+            rawDataNoIndex = rawData.reset_index();
+            
+            dd = rawDataNoIndex.loc[(rawDataNoIndex.deal_type != 1) & (rawDataNoIndex.bad_deals)]
+            self.dropped_deals[settle_date] = dd.set_index(group_ind_cols) 
+            # rawData.drop(ind_out, inplace = True)
+            cd = rawDataNoIndex.loc[(rawDataNoIndex.deal_type == 1) | (~rawDataNoIndex.bad_deals)]
+            clearedData = cd.set_index(group_ind_cols)
+            self.logger.debug(f'DF shape: {clearedData.shape} - adjusted')
         
-        self.logger.debug(f'DF shape: {rawData.shape} - original')
-        self.logger.debug(f'Deals dropped: {ind_out}')
-        self.dropped_deals[settle_date] = rawData.loc[ind_out,:]
-        rawData.drop(ind_out, inplace = True)
-        self.logger.debug(f'DF shape: {rawData.shape} - adjusted')
+        else:
+            self.dropped_deals[settle_date] = None
+            clearedData = rawData
+            
+        groupedData = self.group_by_code_date_type(clearedData)        
         
-        sample = creating_sample(settle_date, rawData, min_n_deal=self.min_n_deal, time_window=CONFIG.TIME_WINDOW, thresholds = self.thresholds)
+        sample = creating_sample(settle_date, groupedData, min_n_deal=self.min_n_deal, time_window=CONFIG.TIME_WINDOW, thresholds = self.thresholds)
 
         if self.need_trace:              
             zsSampeFileName = f'{idDatePrefix}_zscore_sample_parmsi.xlsx' if parMsiActive else f'{idDatePrefix}_zscore_sample.xlsx'
             sample.to_excel(os.path.join(self.trace_path, zsSampeFileName), sheet_name='sample', engine='xlsxwriter')
+            clearedData.to_excel(os.path.join(self.trace_path, f'{idDatePrefix}_deals_cleared_by_par.xlsx'), sheet_name='cleared_deals', engine='xlsxwriter')
+            groupedData.to_excel(os.path.join(self.trace_path, f'{idDatePrefix}_deals_grouped.xlsx'), sheet_name='cleared_deals', engine='xlsxwriter')
+            # clearedData.to_pickle(os.path.join(self.trace_path, f'{idDatePrefix}_deals_cleared_by_par.pkl.compress'), compression="gzip")
+            # clearedDataCopy = pd.read_pickle(os.path.join(self.trace_path, "data.pkl.compress"), compression="gzip")
+            if (self.dropped_deals[settle_date] is not None) and (not self.dropped_deals[settle_date].empty):              
+                self.dropped_deals[settle_date].to_excel(os.path.join(self.trace_path, f'{idDatePrefix}_deals_dropped_by_par.xlsx'), sheet_name='dropped_deals', engine='xlsxwriter')
         
         self.data_different_dates[settle_date] = sample 
 
         self.logger.debug(f'Generating sample for {settle_date:%d.%m.%Y} - Done!')
         
-        if self.need_trace and not self.dropped_deals[settle_date].empty:              
-            self.dropped_deals[settle_date].to_excel(os.path.join(self.trace_path, f'{idDatePrefix}_deals_dropped_by_zscore.xlsx'), sheet_name='dropped_deals', engine='xlsxwriter')
+    def group_by_code_date_type(self, df):
+        ind_col = ['deal_date', 'symbol', 'deal_price']
+        #group_ind_cols = ['deal_date', 'symbol', 'deal_type']
+        group_ind_cols = ['deal_date', 'symbol']
+        
+        dfni = df.reset_index();
+        
+        #dfni['deal_date'] = dfni['deal_date'].dt.floor('d')
+    
+        grouped = dfni.groupby(group_ind_cols)
+        
+        df_agg = grouped.agg({
+            "volume_kzt": "sum", 
+            "span": "first",
+            "coupon_rate": "first",
+            "annual_freq": "first",
+            "base_time": "first",
+            "bond_symb": "first"
+        })
+        
+        df_price = grouped.apply(lambda x: np.average(x.deal_price, weights=x.volume_kzt))
+    
+        df_ytm = grouped.apply(lambda x: np.average(x.ytm_fixed, weights=x.volume_kzt))
+        
+        df_agg['deal_price'] = df_price 
+        df_agg['ytm'] = df_ytm 
+    
+        df_final = df_agg.reset_index().set_index(ind_col)
+        
+        return df_final     
     
     def new_dates(self, new_end_date = None):
         
@@ -510,7 +612,15 @@ class grid_search():
                 
                 l_args = [arg for arg in loss_args]
     
-                l_args[0] = self.data_different_dates[settle_date]
+                #l_args[0] = self.data_different_dates[settle_date]
+                df = self.data_different_dates[settle_date]
+                l_args[0] = df
+                # Вроде бы уже время убрли в creating_new_columns?
+                ## Заново перерасчитываем (без времени)
+                coupons_cf, streak_data = creating_coupons(df)
+                ## и заменяем
+                l_args[1] = coupons_cf
+                l_args[2] = streak_data
                 l_args = tuple(l_args)
                 
                 constr = ({'type':'eq',
@@ -519,12 +629,26 @@ class grid_search():
                 if self.need_trace:              
                     binit = pd.DataFrame(self.beta_init)
                     binit.to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_beta_init.xlsx'), sheet_name='beta_init', engine='xlsxwriter')
-                    self.data_different_dates[settle_date].to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_settle_date_deals.xlsx'), sheet_name='deals', engine='xlsxwriter')
                     #self.raw_data.to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_raw_data.xlsx'), sheet_name='raw_data', engine='xlsxwriter')
+                    coupons_cf.to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_coupons_cf_new.xlsx'), sheet_name='data', engine='xlsxwriter')
+                    streak_data.to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_streak_data_new.xlsx'), sheet_name='data', engine='xlsxwriter')
+
+                    df_copy = df.copy();
+                    df_copy = df_copy.reset_index()
+                    self.logger.info(f'df_copy: {df_copy.columns.tolist()}')
+
+                    # Добавить в settle_date_deals поле YTC которое будет рассчитываться как span/base_time, а поле YTM умножить на 100
+                    df_copy['ytm'] = df_copy['ytm'] * 100
+                    df_copy['ytc'] = df_copy['span'] / df_copy['base_time']
+                    
+                    cols = ['deal_date', 'symbol', 'deal_price', 'volume_kzt', 'span', 'ytc', 'ytm', 'deal_type', 'reverse_span', 'bond_maturity_type', 'coupon_rate', 'annual_freq', 'base_time', 'bond_symb', 'settle_date', 'deal_only_date']
+                    df_copy = df_copy.reindex(columns=cols)
+                    
+                    df_copy.to_excel(os.path.join(self.trace_path, f'{self.jobid}_{settle_date:%Y%m%d}_settle_date_deals.xlsx'), sheet_name='deals_trace', engine='xlsxwriter')
 
                 if i == lastind:
                     self.logger.info(f'store deals to xlsx for {settle_date:%Y%m%d}')
-                    self.data_different_dates[settle_date].to_excel(os.path.join(self.data_path, f'{self.jobid}_settle_date_deals.xlsx'), sheet_name='deals', engine='xlsxwriter')
+                    df.to_excel(os.path.join(self.data_path, f'{self.jobid}_settle_date_deals.xlsx'), sheet_name='deals', engine='xlsxwriter')
 
                 self.logger.debug('populating distributed tasks')
                 #parallelization of loop via dask multiprocessing
