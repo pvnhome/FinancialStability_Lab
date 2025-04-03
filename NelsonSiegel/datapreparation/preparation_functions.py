@@ -120,7 +120,7 @@ def filtering(df, needed_bonds=None, use_otc=False, notes_in_otc=False, deal_mar
     return df
 
 #### Groupping of deals is needed for optimization of calculation
-def groupping_transactions(df):
+def groupping_transactions_old(df):
     logger = logging.getLogger(__name__)
     logger.debug('groupping_transactions')
     
@@ -185,6 +185,82 @@ def groupping_transactions(df):
     
     return clean_data
 
+#### Groupping of deals is needed for optimization of calculation
+def groupping_transactions_fixed(df):
+    logger = logging.getLogger(__name__)
+    logger.debug('groupping_transactions')
+    
+    group_ind_cols = ['deal_date', 'symbol', 'deal_price']
+ 
+    dfni = df.reset_index();
+    
+    grouped = dfni.groupby(group_ind_cols)
+
+    # df_price = grouped.apply(lambda x: np.average(x.deal_price, weights=x.volume_kzt))
+    # На всякий случай группируем clean_price (Нужно?)
+    df_clean_price = grouped.apply(lambda x: np.average(x.clean_price, weights=x.volume_kzt))
+    # У бумаг вроде KZ_06_4410 при одной цене может быть разная доходность.
+    df_ytm = grouped.apply(lambda x: np.average(x.ytm, weights=x.volume_kzt))
+
+    df_agg = grouped.agg({
+        "volume_kzt": "sum", 
+        "face_value": "first",
+        "stand_price": "first",
+        "annual_freq": "first",
+        "base_time": "first",
+        "span": "first",
+        "coupon_rate": "first",
+        "end_date": "first"
+    })
+
+    # df_agg['deal_price'] = df_price 
+    df_agg['clean_price'] = df_clean_price 
+    df_agg['ytm'] = df_ytm 
+
+    #clean_data = df.reset_index().set_index(ind_col)
+
+    cnt = df_agg.loc[df_agg.ytm.isnull()]; 
+    if cnt.size > 0:
+        cnt.to_excel('/home/victor/work/java/extended_props/logs/gzb_curve/v/empty_ytm.xlsx', sheet_name='empty_ytm', engine='xlsxwriter')
+        raise Exception('Empty ytm')
+    cnt = df_agg.loc[(df_agg.annual_freq == 0) | (df_agg.annual_freq.isnull())]; 
+    if cnt.size > 0:
+        cnt.to_excel('/home/victor/work/java/extended_props/logs/gzb_curve/v/empty_annual_freq.xlsx', sheet_name='empty_annual_freq', engine='xlsxwriter')
+        raise Exception('Empty annual_freq')
+
+    # return df 
+    #return clean_data
+    return df_agg
+
+
+#        ind_col = ['deal_date', 'symbol', 'deal_price']
+#        group_ind_cols = ['deal_date', 'symbol', 'deal_type']
+#        
+#        dfni = df.reset_index();
+#        
+#        #dfni['deal_date'] = dfni['deal_date'].dt.floor('d')
+#    
+#        grouped = dfni.groupby(group_ind_cols)
+#        
+#        df_agg = grouped.agg({
+#            "volume_kzt": "sum", 
+#            "span": "first",
+#            "coupon_rate": "first",
+#            "annual_freq": "first",
+#            "base_time": "first",
+#            "bond_symb": "first"
+#        })
+#        
+#        df_price = grouped.apply(lambda x: np.average(x.deal_price, weights=x.volume_kzt))
+#    
+#        df_ytm = grouped.apply(lambda x: np.average(x.ytm_fixed, weights=x.volume_kzt))
+#        
+#        df_agg['deal_price'] = df_price 
+#        df_agg['ytm'] = df_ytm 
+#    
+#        df_final = df_agg.reset_index().set_index(ind_col)
+
+
 ####
 def processing_data(dataframe, mask_face_value, mask_base_time, 
               needed_bonds=None, use_otc=False, notes_in_otc=False, deal_market=None,
@@ -226,7 +302,7 @@ def processing_data(dataframe, mask_face_value, mask_base_time,
                                      use_otc=use_otc, deal_market=deal_market,
                                      notes_in_otc=notes_in_otc, maturity_filter=maturity_filter, 
                                      specific_deals=specific_deals)
-                               .pipe(groupping_transactions)
+                               .pipe(groupping_transactions_fixed)
                        )
     except Exception as e:
         print(e)
