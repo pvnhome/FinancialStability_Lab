@@ -7,9 +7,6 @@ from _ast import If
 
 #### creating new essential features based on input data
 def creating_new_columns(df, mask_face_value, mask_base_time):
-    # Избавляемся от времени в записи о сделке.
-    df['deal_date'] = df['deal_date'].dt.floor('d')
-    
     #Extracted symbol type of bond
     df['bond_symb'] = df.symbol.str.extract(r'([A-Z]+)', expand=False)
     #defining Face Value of bond
@@ -45,7 +42,7 @@ def cleaning_from_errors(df):
 #### Defining filling function which will replace wrong values 
 def filling_values(df, discount_bonds=['NTK', 'MKM']):
     #recoding type of deal in integers
-    #df['deal_type'] = df.deal_type.map({'1': 1, '2': 2, 'SR': 3})
+    df['deal_type'] = df.deal_type.map({'1': 1, '2': 2, 'SR': 3})
     print('beggining of filling data', df.shape)
     #if clean price equal coupon rate than it is errors in dataset
     #so clean price is taken as 100 in this case
@@ -184,7 +181,7 @@ def groupping_transactions(df):
     clean_data = clean_data.reset_index().set_index(ind_col)
     logger.debug(clean_data.shape)
 
-    clean_data.to_excel('/home/victor/work/java/extended_props/logs/gzb_curve/v/groupping_transactions_old.xlsx', sheet_name='old', engine='xlsxwriter')
+    #clean_data.to_excel('/home/victor/work/java/extended_props/logs/gzb_curve/v/groupping_transactions_old.xlsx', sheet_name='old', engine='xlsxwriter')
     
     return clean_data
 
