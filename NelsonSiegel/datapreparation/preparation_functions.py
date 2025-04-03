@@ -42,7 +42,7 @@ def cleaning_from_errors(df):
 #### Defining filling function which will replace wrong values 
 def filling_values(df, discount_bonds=['NTK', 'MKM']):
     #recoding type of deal in integers
-    df['deal_type'] = df.deal_type.map({'1': 1, '2': 2, 'SR': 3})
+    #df['deal_type'] = df.deal_type.map({'1': 1, '2': 2, 'SR': 3})
     print('beggining of filling data', df.shape)
     #if clean price equal coupon rate than it is errors in dataset
     #so clean price is taken as 100 in this case
