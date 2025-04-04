@@ -115,7 +115,8 @@ def choosing_time_frame(settle_date, clean_data, number_cuts=3, lookback=180,
     #filtering based on time window  
     filtered_data = adaptive_samples(df, time_window=time_window, min_n_deal=min_n_deal,
                                      all_baskets_fixed=all_baskets_fixed)
-    return filtered_data.set_index(['deal_date', 'symbol', 'deal_price'])
+    #return filtered_data.set_index(['deal_date', 'symbol', 'deal_price'])
+    return filtered_data.set_index(['deal_date', 'symbol'])
 
 def outlier_detection(data, contamination=0.015, n_jobs=1, **kwargs):
     isoforest = IsolationForest(contamination=contamination, n_jobs=n_jobs, 
