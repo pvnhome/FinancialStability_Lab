@@ -186,6 +186,7 @@ def groupping_transactions_old(df):
     return clean_data
 
 #### Groupping of deals is needed for optimization of calculation
+# Метод устарел. Требуется удаление.
 def groupping_transactions_fixed(df):
     logger = logging.getLogger(__name__)
     logger.debug('groupping_transactions')
@@ -231,35 +232,6 @@ def groupping_transactions_fixed(df):
     # return df 
     #return clean_data
     return df_agg
-
-
-#        ind_col = ['deal_date', 'symbol', 'deal_price']
-#        group_ind_cols = ['deal_date', 'symbol', 'deal_type']
-#        
-#        dfni = df.reset_index();
-#        
-#        #dfni['deal_date'] = dfni['deal_date'].dt.floor('d')
-#    
-#        grouped = dfni.groupby(group_ind_cols)
-#        
-#        df_agg = grouped.agg({
-#            "volume_kzt": "sum", 
-#            "span": "first",
-#            "coupon_rate": "first",
-#            "annual_freq": "first",
-#            "base_time": "first",
-#            "bond_symb": "first"
-#        })
-#        
-#        df_price = grouped.apply(lambda x: np.average(x.deal_price, weights=x.volume_kzt))
-#    
-#        df_ytm = grouped.apply(lambda x: np.average(x.ytm_fixed, weights=x.volume_kzt))
-#        
-#        df_agg['deal_price'] = df_price 
-#        df_agg['ytm'] = df_ytm 
-#    
-#        df_final = df_agg.reset_index().set_index(ind_col)
-
 
 ####
 def processing_data(dataframe, mask_face_value, mask_base_time, 
