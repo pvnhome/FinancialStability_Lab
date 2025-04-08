@@ -216,8 +216,8 @@ class grid_search():
 #        points['par_max'] = points.apply(lambda row: row.par + 0.01, axis=1)
         points['par_min'] = points.apply(lambda row: row.par - 0.005, axis=1)
         points['par_max'] = points.apply(lambda row: row.par + 0.05, axis=1)
-        #points['par_ytm'] = points.apply(lambda row: row.ytm_kase if row.ytm_kase>0.0 else row.ytm, axis=1)
-        points['bad_deals'] = points.apply(lambda row: row.ytm_fixed<row.par_min or row.ytm_fixed>row.par_max, axis=1)
+        #points['par_ytm'] = points.apply(lambda row: row.ytm_real if row.ytm_real>0.0 else row.ytm, axis=1)
+        points['bad_deals'] = points.apply(lambda row: row.ytm<row.par_min or row.ytm>row.par_max, axis=1)
 
         #return points
     
@@ -444,7 +444,7 @@ class grid_search():
         
         df_price = grouped.apply(lambda x: np.average(x.deal_price, weights=x.volume_kzt))
     
-        df_ytm = grouped.apply(lambda x: np.average(x.ytm_fixed, weights=x.volume_kzt))
+        df_ytm = grouped.apply(lambda x: np.average(x.ytm, weights=x.volume_kzt))
         
         df_agg['deal_price'] = df_price 
         df_agg['ytm'] = df_ytm 

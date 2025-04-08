@@ -19,28 +19,19 @@ def loss_yield(bond, coupons_cf, streak_data):
         print(e, ind)
     return ytm.x
 
-#new ytm adds ytm column in dataset while saving older ytm as ytm_kase 
 def new_ytm(df, coupons_cf, streak_data):
     '''
-    Change ytm column of dataframe on estimated ytm, which is based on deals prices.
-    For estimation uses Brent's algorithm to find a local minimum. 
-    
-    Parameters
-    ------------
-    df: Pandas DataFrame
-        dataframe of bond's data
-    coupons_cf: Pandas Dataframe
-        Dataframe containing bonds' payment cash flows
-    streak_data: Pandas Dataframe
-        Dataframe containing bonds' payment calendar
+    Корректируем доходность в случае отсутствия доходности рассчитанной на KASE. 
     '''
-    #saving old ytm
-    df['ytm_kase'] = df['ytm'] / 100
-    ##estimating new ytm
-    df['ytm'] = np.array([loss_yield(df.iloc[i], coupons_cf, streak_data) 
-                                          for i in range(df.shape[0])]) 
+    
+    # Saving ytm from KASE.
+    df['ytm_real'] = df['ytm'] / 100
+    
+    ## Estimating theoretic ytm.
+    df['ytm_theor'] = np.array([loss_yield(df.iloc[i], coupons_cf, streak_data) for i in range(df.shape[0])]) 
 
-    df['ytm_fixed'] = df.apply(lambda row: row.ytm_kase if row.ytm_kase>0.0 else row.ytm, axis=1)
+    # В случае отсутствия доходности рассчитаной на KASE, используем теоретичекую доходность.
+    df['ytm'] = df.apply(lambda row: row.ytm_real if row.ytm_real>0.0 else row.ytm_theor, axis=1)
     
     return df
 
