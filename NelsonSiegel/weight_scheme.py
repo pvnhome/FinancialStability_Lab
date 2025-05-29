@@ -66,7 +66,7 @@ class WeightScheme():
             ##weight by age
             #Wq = rev_span_weight2(self.df.loc[self.df['bond_maturity_type'] == mat_type, 'reverse_span'],
             #                     self.df.loc[self.df['bond_maturity_type'] == mat_type, 'rho'])
-            Wq = 10**(-deals.reverse_span/self.df.reverse_span.max())
+            Wq = 10**(-deals.reverse_span/deals.reverse_span.max())
 			
             #weight by volume
             Vq = np.log(deals['volume_kzt']) / np.log(deals['volume_kzt'].sum())
